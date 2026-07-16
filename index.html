@@ -1,0 +1,1919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>remek · own the Agent Skills your agents help create</title>
+<meta name="description" content="The governed source and release layer for Agent Skills — provenance, byte-bound evidence, exact change plans, and selected private or public releases.">
+<meta name="author" content="Benedek Blackthorn">
+<meta name="application-name" content="remek">
+<!-- Private preview: indexing stays disabled until separately authorized. -->
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" id="theme-color" content="#FAF7F0">
+
+<link rel="canonical" href="https://remek.dev/">
+<link rel="license" href="https://opensource.org/license/mit">
+
+<!-- Social cards. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="remek">
+<meta property="og:locale" content="en_US">
+<meta property="og:title" content="remek · own the Agent Skills your agents help create">
+<meta property="og:description" content="The governed source and release layer for Agent Skills — provenance, byte-bound evidence, exact change plans, and selected private or public releases.">
+<meta property="og:url" content="https://remek.dev/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="remek · own the Agent Skills your agents help create">
+<meta name="twitter:description" content="The governed source and release layer for Agent Skills — provenance, byte-bound evidence, exact change plans, and selected private or public releases.">
+
+<!-- Structured data: free, MIT-licensed software. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "remek",
+  "description": "The governed source and release layer for Agent Skills — provenance, byte-bound evidence, exact change plans, and selected private or public releases.",
+  "url": "https://remek.dev/",
+  "sameAs": ["https://github.com/benblackthorn/remek"],
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, native Linux (excluding WSL)",
+  "softwareRequirements": "Python 3.11 or newer; verified POSIX local storage; Git for scaffold and release checks; GitHub CLI for verified GitHub targets",
+  "license": "https://opensource.org/license/mit",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+
+<!-- Favicon: the remek diamond, inline (no extra request) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='26' y='26' width='48' height='48' fill='%23206B4E' transform='rotate(45 50 50)'/%3E%3C/svg%3E">
+
+<!-- Theme boot: runs before first paint so the correct theme never
+     flashes. Reads localStorage; anything unset means "system". -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem("remek-theme");
+      var mode = saved === "light" || saved === "dark" ? saved : "system";
+      var dark = matchMedia("(prefers-color-scheme: dark)").matches;
+      var theme = mode === "system" ? (dark ? "dark" : "light") : mode;
+      document.documentElement.setAttribute("data-theme", theme);
+      document.documentElement.setAttribute("data-theme-mode", mode);
+      document.getElementById("theme-color").setAttribute("content", theme === "dark" ? "#161619" : "#FAF7F0");
+    } catch (e) {
+      document.documentElement.setAttribute("data-theme", "light");
+      document.documentElement.setAttribute("data-theme-mode", "system");
+    }
+  })();
+</script>
+
+<style>
+/* ============================================================
+   remek.dev · single-file landing page
+
+   Contents
+     1. Design tokens (light + dark)
+     2. Base and shared primitives
+     3. Header
+     4. Hero
+     5. Hero diagram (one governed source, two release paths)
+     6. Section rhythm
+     7. How it works + audiences
+     8. Session terminal
+     9. Rails (protocol line)
+    10. Gates (numbered release gates + drawn spine)
+    11. Quick start + copy controls
+    12. FAQ accordion
+    13. Bookend
+    14. Footer
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. DESIGN TOKENS
+   ------------------------------------------------------------ */
+:root,
+html[data-theme="light"] {
+  /* dependency-free system type stacks */
+  --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, ui-serif, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  /* surfaces */
+  --bg:         #FAF7F0;               /* warm paper            */
+  --bg-raised:  #FFFEFA;               /* cards, code blocks    */
+  --bg-inset:   #EFEBE1;               /* inline code, backdrop */
+  /* text */
+  --ink:        #191713;               /* headings              */
+  --ink-2:      #453F33;               /* body                  */
+  --ink-3:      #4A4437;               /* secondary             */
+  --muted:      #746E62;               /* captions, hints       */
+  /* lines */
+  --line:        rgba(25,23,19,.16);
+  --line-soft:   rgba(25,23,19,.10);
+  --line-strong: rgba(25,23,19,.30);
+  --leader:      rgba(25,23,19,.35);
+  /* brand + status */
+  --accent:          #206B4E;          /* green seal            */
+  --accent-contrast: #FAF7F0;
+  --ok:              #206B4E;
+  --warn:            #C24E3A;
+  --theme-sun:       #A86800;
+  --theme-moon:      #6268A8;
+  --theme-system:    #506772;
+  --theme-hover:     #FFFFFF;
+  /* solid buttons */
+  --btn-bg:    #191713;
+  --btn-ink:   #FAF7F0;
+  --btn-hover: #206B4E;
+  /* terminal: deliberately dark in both themes */
+  --term-bg:     #0B0B0D;
+  --term-line:   rgba(237,234,228,.14);
+  --term-ink:    #EDEAE4;
+  --term-dim:    #88867F;
+  --term-accent: #58B98A;
+  --term-ok:     #9CC97C;
+  --term-err:    #E06C5A;
+  /* elevation */
+  --shadow-card: 0 12px 30px rgba(25,23,19,.08);
+  --shadow-term: 0 24px 60px rgba(25,23,19,.18);
+}
+
+/* Dark: neutral charcoal; the green carries over, lifted for
+   contrast on dark surfaces. */
+html[data-theme="dark"] {
+  --bg:         #161619;
+  --bg-raised:  #1D1D21;
+  --bg-inset:   #111114;
+  --ink:        #EDEAE4;
+  --ink-2:      #C9C6BE;
+  --ink-3:      #B8B5AC;
+  --muted:      #8F8C84;
+  --line:        rgba(237,234,228,.12);
+  --line-soft:   rgba(237,234,228,.08);
+  --line-strong: rgba(237,234,228,.30);
+  --leader:      rgba(237,234,228,.30);
+  --accent:          #3E9B72;
+  --accent-contrast: #101013;
+  --ok:              #4CAE81;
+  --warn:            #D96C57;
+  --theme-sun:       #F5C451;
+  --theme-moon:      #AAB4FF;
+  --theme-system:    #A5ADB7;
+  --theme-hover:     rgba(237,234,228,.08);
+  --btn-bg:    #3E9B72;
+  --btn-ink:   #101013;
+  --btn-hover: #EDEAE4;
+  --shadow-card: 0 12px 30px rgba(0,0,0,.35);
+  --shadow-term: 0 24px 60px rgba(0,0,0,.5);
+}
+
+/* ------------------------------------------------------------
+   2. BASE AND SHARED PRIMITIVES
+   ------------------------------------------------------------ */
+* { box-sizing: border-box; }
+
+html {
+  background: var(--bg);          /* covers overscroll rubber-band */
+  scroll-behavior: smooth;
+}
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink-2);
+  font: 400 17px/1.72 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition: background .25s ease, color .25s ease;
+}
+
+::selection { background: var(--accent); color: var(--accent-contrast); }
+
+/* typography hygiene: balanced headings, no widowed last words */
+h1, h2, h3 { text-wrap: balance; }
+p, li, blockquote { text-wrap: pretty; }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { color: var(--ink); }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+/* The skip link moves focus here programmatically. Its viewport change is
+   the focus cue; outlining the full main region creates page-wide rules. */
+#main:focus { outline: none; }
+
+.mono { font-family: var(--font-mono); }
+
+/* inline code: mono face, slightly dimmed; no pill background */
+.inline-code {
+  font: 400 14px var(--font-mono);
+  color: inherit; opacity: .85;
+}
+
+/* command names need to read as actions, not ordinary prose */
+.inline-command {
+  display: inline-block;
+  padding: .08em .42em .12em;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg-inset);
+  color: var(--ink);
+  font: 500 .86em/1.45 var(--font-mono);
+  letter-spacing: -.01em;
+  vertical-align: .06em;
+  white-space: nowrap;
+}
+
+/* layout shell: one max-width container, fluid gutters */
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(20px, 4.5vw, 56px); }
+
+/* anchored sections land with a little air above them */
+section[id], #session-term, #bookend-cmd { scroll-margin-top: 24px; }
+
+/* skip link: visible on keyboard focus only */
+.skip {
+  position: absolute; left: 16px; top: -60px; z-index: 20;
+  background: var(--btn-bg); color: var(--btn-ink);
+  padding: 12px 18px; border-radius: 3px;
+  font: 500 14px var(--font-mono); text-decoration: none;
+  transition: top .15s ease;
+}
+.skip:focus { top: 16px; color: var(--btn-ink); }
+
+/* section eyebrow: small mono label above each section title */
+.eyebrow {
+  font: 500 14px/1.4 var(--font-mono);
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 14px;
+}
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 12px 26px; border-radius: 3px;
+  font: 500 14px var(--font-mono); letter-spacing: .02em;
+  text-decoration: none; border: 0; cursor: pointer;
+  background: var(--btn-bg); color: var(--btn-ink);
+  transition: background .18s ease, color .18s ease;
+}
+.btn:hover { background: var(--btn-hover); color: var(--accent-contrast); }
+html[data-theme="dark"] .btn:not(.btn-ghost):hover { color: #101013; }
+
+.btn-ghost {
+  background: transparent; color: var(--ink-2);
+  border: 1px solid var(--line-strong);
+}
+.btn-ghost:hover { background: transparent; color: var(--ink); border-color: var(--accent); }
+
+/* Progressive enhancement: content is visible unless motion setup succeeds. */
+.reveal { opacity: 1; transform: none; }
+html.motion-ready .reveal {
+  opacity: 0; transform: translateY(14px);
+  transition: opacity .6s ease, transform .6s ease;
+}
+html.motion-ready .reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+.nowrap { white-space: nowrap; }
+
+/* ------------------------------------------------------------
+   3. HEADER
+   ------------------------------------------------------------ */
+.site-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding-top: 22px; padding-bottom: 22px;   /* horizontal from .wrap */
+}
+.brand {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  text-decoration: none; color: var(--ink);
+}
+.brand:hover { color: var(--ink); }
+.brand-name { font: 700 22px/1 var(--font-display); letter-spacing: -.01em; }
+/* optical axis: the visible x-height of "reme", excluding the k ascender */
+.brand-note {
+  position: relative; top: 3px;
+  white-space: nowrap;
+  font: 400 clamp(10px, 2.8vw, 12px)/1 var(--font-mono);
+  letter-spacing: .01em; color: var(--ink-3);
+}
+
+/* theme switcher: a bare icon with a 44px hit target */
+.theme-btn {
+  width: 44px; height: 44px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  position: relative; background: none; border: 0; border-radius: 0;
+  color: var(--ink-3); cursor: pointer; align-self: center;
+}
+.theme-btn::before {
+  content: ""; position: absolute; inset: 8px;
+  border-radius: 5px; background: transparent;
+  box-shadow: 0 0 0 0 transparent; pointer-events: none;
+  transition: background-color .18s ease, box-shadow .18s ease;
+}
+.theme-btn:hover::before { background: var(--theme-hover); }
+.theme-btn:focus-visible { outline: 0; }
+.theme-btn:focus-visible::before {
+  background: var(--theme-hover); box-shadow: 0 0 0 2px var(--accent);
+}
+.site-head > .theme-btn { flex: 0 0 44px; }
+.theme-btn > span {
+  display: none; align-items: center; justify-content: center;
+  position: relative; z-index: 1; width: 16px; height: 16px;
+}
+.theme-icon {
+  display: block; width: 16px; height: 16px;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  pointer-events: none;
+}
+.theme-btn .mode-system { color: var(--theme-system); }
+.theme-btn .mode-light  { color: var(--theme-sun); }
+.theme-btn .mode-dark   { color: var(--theme-moon); }
+html[data-theme-mode="system"] .theme-btn .mode-system { display: inline-flex; }
+html[data-theme-mode="light"]  .theme-btn .mode-light  { display: inline-flex; }
+html[data-theme-mode="dark"]   .theme-btn .mode-dark   { display: inline-flex; }
+
+/* Without behavior, do not expose controls that cannot act. */
+html:not(.js) .theme-btn,
+html:not(.js) .copy-control,
+html:not(.js) .cmd-tabs,
+html:not(.js) .qs-code-bar { display: none; }
+
+@media (max-width: 480px) {
+  .site-head { gap: 12px; }
+  .brand { gap: 7px; }
+  .btn { padding: 12px 18px; }
+}
+
+/* iPhone WebKit places SF Mono lower against Iowan Old Style. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 480px) and (hover: none) and (pointer: coarse) {
+    .brand-note { top: 1px; }
+  }
+}
+
+/* ------------------------------------------------------------
+   4. HERO
+   ------------------------------------------------------------ */
+.hero {
+  display: grid; grid-template-columns: .95fr 1.05fr;
+  gap: clamp(36px, 5vw, 64px); align-items: center;
+  padding-top: clamp(52px, 8vw, 88px); padding-bottom: clamp(48px, 7vw, 76px);
+}
+.hero h1 {
+  margin: 0 0 26px;
+  font: 400 clamp(48px, 4.35vw, 62px)/1.06 var(--font-display);
+  letter-spacing: -.015em; color: var(--ink);
+}
+.hero h1 em { font-style: italic; color: var(--accent); }
+.hero .lede { margin: 0 0 34px; max-width: 560px; font-size: clamp(17px, 1.6vw, 19px); line-height: 1.6; color: var(--ink-2); }
+.hero-ctas { display: flex; flex-wrap: nowrap; gap: 14px; align-items: center; }
+.hero-fine {
+  display: flex; flex-wrap: wrap; gap: 2px 18px;
+  margin-top: 30px; font: 400 14px/1.7 var(--font-mono); color: var(--ink-3);
+}
+.hero-fine > span { white-space: nowrap; }
+.hero-fine > span:first-child { position: relative; }
+.hero-fine.is-single-line > span:first-child::after,
+html:not(.js) .hero-fine > span:first-child::after {
+  content: "·"; position: absolute; left: calc(100% + 9px); transform: translateX(-50%);
+  color: var(--muted);
+}
+@media (max-width: 517px) {
+  html:not(.js) .hero-fine > span:first-child::after { content: none; }
+}
+.hero-fine-rest { display: inline-flex; }
+.hero-fine-rest span + span::before {
+  content: "·"; display: inline-block; margin: 0 10px; color: var(--muted);
+}
+
+@media (max-width: 1120px) {
+  .hero { grid-template-columns: 1fr; }
+  .hero-copy, .hero-art { width: 100%; margin-inline: auto; }
+  .hero-copy, .hero-art { min-width: 0; max-width: 100%; }
+  .hero-copy { max-width: 760px; text-align: center; }
+  .hero h1 { max-width: 19ch; margin-inline: auto; font-size: 48px; }
+  .hero .lede { margin-inline: auto; }
+  .hero-ctas, .hero-fine { justify-content: center; }
+  .hero-art { max-width: 620px; }
+}
+@media (max-width: 600px) {
+  .hero h1 {
+    font-size: clamp(36px, calc(22.286px + 4.286vw), 48px);
+  }
+  .hero-fine-rest { flex-wrap: wrap; justify-content: center; }
+}
+@media (max-width: 420px) {
+  .hero-ctas { flex-wrap: nowrap; gap: 6px; }
+  .hero-ctas .btn { padding-inline: 12px; }
+  .hero-ctas .cta-arrow { display: none; }
+}
+.hero-art { position: relative; container-type: inline-size; }
+
+/* ------------------------------------------------------------
+   5. HERO DIAGRAM
+   One explicit input becomes one private governed source. From
+   there, reviewed bytes can be prepared for a private team or a
+   selected public repository. Git and installers remain outside
+   remek's boundary.
+   ------------------------------------------------------------ */
+.tree { font: 400 14px/1.55 var(--font-mono); color: var(--ink-2); }
+@supports (font-size: 1cqw) {
+  .tree { font-size: clamp(11px, 3cqw, 14px); }
+}
+
+.tree-node {
+  background: var(--bg-raised); border: 1px solid var(--line-strong);
+  border-radius: 3px; padding: 12px 13px;
+  min-width: 0; overflow-wrap: break-word;
+  text-align: center;
+}
+.tree-node .tk {
+  display: block; white-space: nowrap;
+  font: 500 1em var(--font-mono); letter-spacing: .04em;
+  color: var(--accent); margin-bottom: 5px;
+}
+.tree-node .tt { display: block; white-space: nowrap; font: 600 1.07em var(--font-mono); color: var(--ink); }
+.tree-node .td { display: block; color: var(--ink-3); margin-top: 4px; font-size: 1em; line-height: 1.55; }
+.tree-node .td + .td { margin-top: 0; }
+
+.tree-seed { display: flex; justify-content: center; }
+.tree-home { border: 1.5px solid var(--accent); box-shadow: var(--shadow-card); padding: 14px 15px; }
+.tree-home .tt { font-style: italic; }
+.t-opt { border-style: dashed; }
+.tree-input-arrow {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 10px 0 12px;
+}
+
+/* shared connector primitives */
+.varrow-label {
+  font: 500 1em var(--font-mono); letter-spacing: .04em; color: var(--accent);
+}
+.v-line,
+.v-line-dash { width: 1px; height: 26px; position: relative; }
+.v-line { background: var(--line-strong); }
+.v-line-dash {
+  background-image: linear-gradient(var(--line-strong) 60%, transparent 0);
+  background-size: 1px 7px;
+}
+.v-line::after,
+.v-line-dash::after {
+  content: ""; position: absolute; left: -4px; bottom: -2px;
+  border-left: 4.5px solid transparent; border-right: 4.5px solid transparent;
+  border-top: 6px solid var(--accent);
+}
+
+/* one source, one release-readiness statement, two destinations */
+.tree-flow {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px;
+  grid-template-areas:
+    "homeA homeA"
+    "gate  gate"
+    "relA  relB"
+    "pubA  pubB";
+}
+.t-homeA { grid-area: homeA; }
+.t-homeB { grid-area: homeB; }
+.t-pubA  { grid-area: pubA; }
+.t-pubB  { grid-area: pubB; }
+
+/* the checks remek requires before it prepares release bytes */
+.tree-gate { grid-area: gate; margin-top: 12px; }
+.gate-chip {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; padding: 6px 10px;
+  border: 1px solid var(--ok); border-radius: 2px;
+  font: 500 1em var(--font-mono); color: var(--ok);
+  white-space: nowrap;
+}
+
+.release-arrow {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 6px; padding: 10px 0 12px;
+}
+.t-relA { grid-area: relA; }
+.t-relB { grid-area: relB; }
+
+.tree-consume {
+  margin: 14px 0 0; text-align: center;
+  font: 400 13px/1.6 var(--font-mono); color: var(--muted);
+}
+
+/* portrait: outputs stack; one shared release arrow keeps the
+   story readable without duplicate connectors */
+@media (max-width: 600px) {
+  .tree { font-size: 14px; }
+  .tree-flow {
+    grid-template-columns: 1fr; gap: 14px 0;
+    grid-template-areas: "homeA" "gate" "relA" "pubA" "pubB";
+  }
+  .tree-gate { margin-top: 0; }
+  .t-relB { display: none; }
+  .gate-chip {
+    font-size: clamp(12px, 4vw, 14px); padding-inline: 8px;
+    white-space: normal; text-align: center;
+  }
+}
+
+/* ------------------------------------------------------------
+   6. SECTION RHYTHM
+   Every section: eyebrow, h2, content.
+   ------------------------------------------------------------ */
+.section { padding-top: clamp(52px, 7.5vw, 84px); padding-bottom: clamp(52px, 7.5vw, 84px); }
+
+.section h2 {
+  margin: 0;
+  font: 400 clamp(32px, 3.8vw, 42px)/1.15 var(--font-display);
+  letter-spacing: -.01em; color: var(--ink);
+}
+.section-head { margin-bottom: clamp(30px, 4vw, 48px); }
+.section-head.center { text-align: center; }
+
+/* ------------------------------------------------------------
+   7. HOW IT WORKS: four scannable controls, left-aligned
+   ------------------------------------------------------------ */
+.problems {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: clamp(38px, 5vw, 56px) clamp(40px, 5vw, 72px);
+}
+.problem { min-width: 0; }
+.problem .num {
+  display: block;
+  font: 500 14px var(--font-mono); letter-spacing: .06em;
+  color: var(--accent); margin-bottom: 6px;
+}
+.problem h3 {
+  margin: 0; font: 400 21px/1.35 var(--font-display);
+  color: var(--ink); letter-spacing: -.01em;
+}
+.problem h3 { white-space: nowrap; }
+.problem p {
+  margin: 9px 0 0; max-width: 44ch;
+  font-size: 16px; line-height: 1.72; color: var(--ink-3);
+}
+.audiences {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(32px, 4vw, 48px);
+}
+.audiences .problem h3 { white-space: normal; }
+.audiences .problem p { font-size: 17px; }
+@media (max-width: 980px) {
+  .audiences { grid-template-columns: 1fr; }
+}
+@media (max-width: 860px) {
+  .problems { grid-template-columns: 1fr; }
+  .problem p {
+    max-width: 52ch;
+    font-size: clamp(17px, 4.2vw, 18px);
+    line-height: 1.68;
+  }
+}
+@media (max-width: 363px) {
+  #how .problems { margin-inline: -10px; }
+  .problem h3 { letter-spacing: -.02em; }
+}
+
+/* ------------------------------------------------------------
+   8. SESSION: copy beside an animated terminal
+   ------------------------------------------------------------ */
+.session-grid {
+  display: grid; grid-template-columns: minmax(300px, .8fr) 1.2fr;
+  gap: clamp(32px, 5vw, 56px); align-items: stretch;
+}
+.session-grid > div { min-width: 0; }   /* terminal scrolls; copy never squeezes */
+/* the terminal centers within the row but can never rise above
+   the section eyebrow: when it is the taller column it defines
+   the row and sits at the top */
+.session-grid > div:last-child {
+  display: flex; flex-direction: column; justify-content: center;
+}
+
+.session-copy h2 { margin-bottom: 14px; }
+.session-copy p:not(.eyebrow) { margin: 0 0 16px; max-width: 460px; font-size: 16px; line-height: 1.72; color: var(--ink-3); }
+.session-copy p:not(.eyebrow):last-child { margin-bottom: 0; }
+
+.terminal {
+  background: var(--term-bg); border: 1px solid var(--term-line);
+  border-radius: 10px; box-shadow: var(--shadow-term); overflow: hidden;
+}
+.terminal .bar {
+  display: flex; align-items: center; gap: 7px;
+  padding: 12px 16px; border-bottom: 1px solid var(--term-line);
+}
+.terminal .dot { width: 10px; height: 10px; border-radius: 99px; background: #3A3D38; }
+.terminal .bar-title { margin-left: 10px; font: 400 14px var(--font-mono); color: var(--term-dim); }
+.terminal .body {
+  padding: 20px 22px;
+  display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 3px;
+  font: 400 14px/1.75 var(--font-mono); color: var(--term-ink);
+  overflow-x: auto;                  /* long lines scroll, never wrap */
+}
+.terminal .body > div { white-space: nowrap; }
+.terminal .body .t-tool.t-ok { white-space: normal; }
+.t-dim    { color: var(--term-dim); }
+.t-ink    { color: var(--term-ink); }
+.t-accent { color: var(--term-accent); }
+.t-ok     { color: var(--term-ok); }
+.t-err    { color: var(--term-err); }
+
+/* transcript: YOU and AGENT speak; the commands the agent runs
+   sit in quoted tool blocks (left rule), like a chat transcript */
+.terminal .body .t-you,
+.terminal .body .t-agent {
+  display: grid; grid-template-columns: 6ch minmax(0, 1fr); column-gap: 2ch;
+  align-items: baseline; white-space: normal; margin-top: 6px;
+}
+.t-who {
+  display: block;
+  letter-spacing: .12em; text-align: right;
+}
+.t-message { min-width: 0; }
+.t-you   .t-who { color: var(--term-ink); }
+.t-agent .t-who { color: var(--term-accent); }
+.t-tool {
+  margin-left: 8ch; padding-left: 1.5ch;
+  border-left: 2px solid var(--term-line);
+}
+.t-ind  { padding-left: 8ch; }      /* scene note aligns with the blocks */
+
+/* choreography: lines appear, commands "type"; starts when the
+   .play class lands (IntersectionObserver, below) */
+.t-line { opacity: 1; }
+html.motion-ready .t-line { opacity: 0; }
+html.motion-ready .play .t-line { animation: t-line .3s ease forwards; animation-delay: var(--d, 0s); }
+.t-type {
+  display: inline-block; overflow: visible; white-space: nowrap;
+  vertical-align: bottom; clip-path: none;
+}
+html.motion-ready .t-type { overflow: hidden; clip-path: inset(0 100% 0 0); }
+html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards; animation-delay: var(--d, 0s); }
+.t-type-fast { animation-duration: .9s !important; }
+.t-caret {
+  display: inline-block; width: 8px; height: 14px;
+  background: var(--term-accent); vertical-align: -2px; margin-left: 6px;
+  animation: t-caret 1.1s step-end infinite;
+}
+@keyframes t-line  { to { opacity: 1; } }
+@keyframes t-type  { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+@keyframes t-caret { 0%, 45% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .t-line { opacity: 1; animation: none !important; }
+  .t-type { clip-path: none; animation: none !important; }
+  .t-caret { animation: none; }
+}
+.terminal-caption { margin-top: 12px; text-align: right; font: 400 14px var(--font-mono); color: var(--muted); }
+
+@media (max-width: 980px) {
+  .session-grid { grid-template-columns: 1fr; }
+  .session-copy { max-width: 720px; margin-inline: auto; text-align: center; }
+  .session-copy h2 { max-width: 20ch; margin-inline: auto; }
+  .session-copy p:not(.eyebrow) { margin-inline: auto; }
+  .session-grid > div:last-child { width: 100%; max-width: 780px; margin-inline: auto; }
+  .terminal-caption { text-align: center; }
+}
+
+@media (max-width: 860px) {
+  .session-copy { max-width: none; margin-inline: 0; text-align: left; }
+  .session-copy h2, .session-copy p:not(.eyebrow) { margin-inline: 0; }
+}
+
+@media (max-width: 560px) {
+  .terminal .bar { padding: 10px 13px; }
+  .terminal .dot { width: 8px; height: 8px; }
+  .terminal .bar-title {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px;
+  }
+  .terminal .body {
+    padding: 16px 14px; row-gap: 8px;
+    font-size: 13px; line-height: 1.65;
+    overflow-x: hidden; overflow-wrap: anywhere;
+  }
+  .terminal .body > div { white-space: normal; }
+  .terminal .body .t-you,
+  .terminal .body .t-agent {
+    grid-template-columns: 4.5em minmax(0, 1fr); column-gap: 8px; margin-top: 2px;
+  }
+  .t-who { text-align: left; }
+  .t-tool { margin-left: 0; padding-left: 12px; }
+  .t-ind { padding-left: 0; }
+  html.motion-ready .play .t-line { animation-delay: 0s !important; }
+  .t-type,
+  html.motion-ready .t-type {
+    display: inline; overflow: visible; white-space: normal; clip-path: none;
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------
+   9. RAIL: the mutation protocol in one line
+   ------------------------------------------------------------ */
+.rail {
+  margin-top: clamp(40px, 5.5vw, 60px);
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  font: 400 clamp(19px, 2.2vw, 24px) var(--font-display); color: var(--ink);
+}
+.rail em { font-style: italic; color: var(--accent); }
+.rail .rule {
+  flex: 1 1 36px; height: 1px; min-width: 36px;
+  background-image: linear-gradient(90deg, var(--line-strong) 60%, transparent 0);
+  background-size: 12px 1px;
+}
+.rail .refuses { color: var(--warn); }
+.rail .refuses em { color: var(--warn); }
+
+/* small screens: the rail stands vertically, rules become drops */
+@media (max-width: 680px) {
+  .rail {
+    flex-direction: column; align-items: flex-start; gap: 12px;
+    font-size: 22px; line-height: 1.2;
+  }
+  .rail .rule {
+    flex: none; width: 1px; height: 22px; min-width: 0; margin-left: 9px;
+    background-image: linear-gradient(var(--line-strong) 60%, transparent 0);
+    background-size: 1px 10px;
+  }
+}
+@media (max-width: 560px) {
+  .rail { align-items: center; text-align: center; }
+  .rail .rule { margin-left: 0; }
+}
+
+/* ------------------------------------------------------------
+   10. GATES: the five release gates
+   Numbered circles joined by one continuous dashed spine, drawn
+   as measured SVG (like the hero connectors) in both the row
+   and the stacked orientation. Circles carry a solid page
+   background so the spine reads as passing behind them.
+   ------------------------------------------------------------ */
+.gates-wrap { position: relative; }
+.gates-svg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible; pointer-events: none;
+}
+.gates-svg .gs { stroke: var(--line-strong); stroke-width: 1; fill: none; stroke-dasharray: 3 4; }
+.gates-svg .gs-head { fill: var(--accent); stroke: none; }
+
+.gates-flow {
+  list-style: none; margin: 0; padding: 0;
+  position: relative;                 /* above the spine */
+  display: grid; grid-template-columns: repeat(5, 1fr);
+  gap: 24px clamp(30px, 3.4vw, 46px);
+}
+.gates-flow li { min-width: 0; }
+.g-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-bottom: 10px;
+  border: 1.5px solid var(--accent); border-radius: 50%;
+  background: var(--bg);              /* masks the spine */
+  font: 500 13px var(--font-mono); color: var(--accent);
+}
+.g-name {
+  display: block;
+  font: 400 21px/1.25 var(--font-display); color: var(--ink);
+  letter-spacing: -.01em; margin-bottom: 6px;
+}
+.g-desc {
+  display: block; max-width: 30ch;
+  font-size: 15px; line-height: 1.62; color: var(--ink-3);
+}
+@media (max-width: 900px) {
+  .gates-flow { grid-template-columns: 1fr; gap: 30px; }
+  .gates-flow li {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    grid-template-rows: 26px auto;
+    column-gap: 16px;
+    align-items: center;
+  }
+  .g-num {
+    grid-column: 1; grid-row: 1;
+    margin: 0;
+  }
+  .g-name {
+    grid-column: 2; grid-row: 1;
+    margin: 0;
+  }
+  .g-desc {
+    grid-column: 2; grid-row: 2;
+    max-width: 52ch; margin-top: 6px;
+    font-size: 16px; line-height: 1.65;
+  }
+}
+
+/* ------------------------------------------------------------
+   11. QUICK START: agent-first prompt plus three reviewed steps
+   ------------------------------------------------------------ */
+.qs-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr);
+  grid-template-areas: "steps prompt";
+  gap: clamp(32px, 4.5vw, 64px); align-items: start;
+}
+.qs-grid > * { min-width: 0; }
+.qs-steps { grid-area: steps; }
+.agent-card {
+  grid-area: prompt;
+  background: var(--bg-raised); border: 1px solid var(--line);
+  border-radius: 3px; padding: 22px 26px 26px;
+}
+.agent-card-head {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; margin-bottom: 14px;
+}
+.agent-card-head .qs-label {
+  font: 500 15px var(--font-mono); letter-spacing: .04em;
+  color: var(--accent);
+}
+.agent-card blockquote {
+  margin: 0; padding: 0; border: 0;
+  font: italic 600 18px/1.7 var(--font-display);
+  color: var(--ink-2);
+}
+.agent-card-head .copy-btn { position: static; flex: none; }
+.agent-card .copy-btn:focus-visible { outline-color: var(--muted); }
+.agent-card .copy-btn.is-copied {
+  color: var(--muted);
+  border-color: var(--line);
+}
+@media (min-width: 981px) {
+  /* Align the prompt with the install command below its step header. */
+  .agent-card { margin-top: 36px; }
+}
+@media (max-width: 980px) {
+  .qs-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas: "prompt" "steps";
+  }
+}
+@media (max-width: 400px) {
+  .agent-card .copy-label { display: none; }
+}
+
+.qs-steps { --qs-gap: clamp(28px, 3.5vw, 40px); display: flex; flex-direction: column; gap: var(--qs-gap); }
+.qs-step-head {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center; column-gap: 16px;
+  min-height: 26px; margin-bottom: 10px;
+}
+.qs-step-head .g-num,
+.qs-step-head .g-name { margin: 0; }
+.qs-step-head .g-name { white-space: nowrap; }
+/* code boxes: terminal-style header bar keeps COPY off the code */
+.qs-code {
+  background: var(--bg-raised); border: 1px solid var(--line);
+  border-radius: 3px; overflow: hidden;
+}
+.qs-code-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 7px 12px 7px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.qs-code-bar .label { font: 400 14px var(--font-mono); color: var(--muted); }
+/* installer variants: gh skill / npx */
+.cmd-tabs { display: flex; gap: 6px; }
+.cmd-tab {
+  min-height: 44px; padding: 5px 10px; border-radius: 2px;
+  font: 500 14px var(--font-mono);
+  background: none; border: 1px solid transparent;
+  color: var(--muted); cursor: pointer; white-space: nowrap;
+  transition: color .15s ease, border-color .15s ease;
+}
+.cmd-tab:hover { color: var(--accent); }
+.cmd-tab[aria-pressed="true"] { color: var(--ink); border-color: var(--line-strong); }
+.qs-code pre {
+  margin: 0; padding: 14px 18px 16px;
+  font: 400 14px/1.9 var(--font-mono);
+  color: var(--ink-2); white-space: pre; overflow-x: auto;
+}
+.qs-body { margin: 0; max-width: 56ch; font-size: 16px; line-height: 1.7; color: var(--ink-2); }
+.qs-body strong { color: var(--ink); font-weight: 600; }
+.qs-body .trigger { color: var(--accent); font-style: italic; font-weight: 400; }
+.qs-body .trigger-tail {
+  display: inline-flex; align-items: center; gap: 3px;
+  white-space: nowrap;
+}
+.qs-cap { margin: 10px 0 0; max-width: 56ch; font-size: 15px; line-height: 1.68; color: var(--ink-3); }
+
+/* copy controls: fast exit, gentler success settle, no layout-changing motion */
+.icon-sprite {
+  position: absolute; width: 0; height: 0; overflow: hidden;
+}
+.copy-control {
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--muted);
+  transition: color .16s ease, border-color .16s ease, background-color .16s ease,
+              transform .14s cubic-bezier(.23, 1, .32, 1);
+}
+.copy-control:active:not(:focus-visible) { transform: scale(.97); }
+.copy-icon {
+  position: relative; flex: none; width: 15px; height: 15px;
+  isolation: isolate;
+}
+.copy-glyph {
+  position: absolute; inset: 0; display: block; width: 15px; height: 15px;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  transform-origin: center;
+}
+.copy-glyph-copy {
+  opacity: 1; transform: translateY(0) scale(1) rotate(0);
+  transition: opacity .18s cubic-bezier(.23, 1, .32, 1),
+              transform .2s cubic-bezier(.23, 1, .32, 1);
+}
+.copy-glyph-check {
+  opacity: 0; transform: translateY(35%) scale(.92) rotate(-6deg);
+  transition: opacity .1s cubic-bezier(.23, 1, .32, 1),
+              transform .12s cubic-bezier(.23, 1, .32, 1);
+}
+.copy-control.is-copying .copy-glyph-copy {
+  opacity: .46; transform: translateY(-8%) scale(.95);
+  transition-duration: .1s, .12s;
+}
+.copy-control.is-copied { color: var(--ok); border-color: var(--ok); }
+.copy-control.is-copied .copy-glyph-copy {
+  opacity: 0; transform: translateY(-35%) scale(.92) rotate(6deg);
+  transition-duration: .11s, .13s;
+}
+.copy-control.is-copied .copy-glyph-check {
+  opacity: 1; transform: translateY(0) scale(1) rotate(0);
+  transition-duration: .18s, .22s;
+}
+.copy-control.is-error { color: var(--warn); border-color: var(--warn); }
+
+.copy-label {
+  display: grid; width: 6ch; overflow: hidden;
+  line-height: 1.15; text-align: left;
+}
+.copy-label-state {
+  grid-area: 1 / 1; display: block;
+  opacity: 0; transform: translateY(45%);
+  transition: opacity .1s cubic-bezier(.23, 1, .32, 1),
+              transform .12s cubic-bezier(.23, 1, .32, 1);
+}
+.copy-label-default {
+  opacity: 1; transform: translateY(0);
+  transition-duration: .18s, .2s;
+}
+.copy-control.is-copying .copy-label-default {
+  opacity: .52; transform: translateY(-8%);
+  transition-duration: .1s, .12s;
+}
+.copy-control.is-copied .copy-label-default,
+.copy-control.is-error .copy-label-default {
+  opacity: 0; transform: translateY(-45%);
+  transition-duration: .11s, .13s;
+}
+.copy-control.is-copied .copy-label-success,
+.copy-control.is-error .copy-label-error {
+  opacity: 1; transform: translateY(0);
+  transition-duration: .18s, .22s;
+}
+
+/* Keyboard activation is intentionally immediate; repeated key
+   actions should not wait on motion. */
+.copy-control.copy-instant,
+.copy-control.copy-instant::before,
+.copy-control.copy-instant .copy-glyph,
+.copy-control.copy-instant .copy-label-state { transition: none; }
+
+.copy-btn {
+  position: absolute; top: 14px; right: 14px;
+  min-height: 44px; gap: 6px;
+  font: 500 14px var(--font-mono); letter-spacing: .02em;
+  background: var(--bg-raised); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 2px;
+  padding: 6px 9px;
+}
+.copy-inline {
+  position: relative; isolation: isolate;
+  width: 26px; height: 26px; padding: 0; flex: none;
+  background: transparent; border: 0; border-radius: 3px;
+  color: var(--muted); vertical-align: middle;
+}
+.copy-inline::before {
+  content: ""; position: absolute; inset: 2px; z-index: 0;
+  border-radius: 3px; background: var(--muted); pointer-events: none;
+  opacity: 0; transform: scale(.8);
+  transition: opacity .1s cubic-bezier(.23, 1, .32, 1),
+              transform .12s cubic-bezier(.23, 1, .32, 1);
+}
+.copy-inline .copy-icon { z-index: 1; }
+.copy-inline:focus-visible { outline-color: var(--muted); }
+.copy-inline.is-copied { color: var(--muted); }
+.copy-inline.is-copied::before {
+  opacity: .1; transform: scale(1);
+  transition-duration: .18s, .2s;
+}
+.copy-inline.is-error::before {
+  background: var(--warn); opacity: .08; transform: scale(1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .copy-inline:hover { background: var(--theme-hover); color: var(--ink); }
+  .copy-btn.is-copied:hover { color: var(--ok); border-color: var(--ok); }
+  .copy-inline.is-copied:hover { color: var(--ink); }
+  .copy-btn.is-error:hover { color: var(--warn); border-color: var(--warn); }
+  .copy-inline.is-error:hover { color: var(--warn); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .copy-control:active,
+  .copy-control::before,
+  .copy-glyph,
+  .copy-label-state { transform: none !important; }
+}
+
+/* COPY sits in the command header, not over content */
+.qs-code-bar .copy-btn { position: static; }
+@media (max-width: 383px) {
+  .qs-code-bar .copy-label { display: none; }
+}
+
+/* ------------------------------------------------------------
+   12. FAQ: a native, exclusive details group. The browser owns
+   focus, keyboard behavior, and the atomic close/open transaction;
+   CSS owns the transition and keeps the changing panel from
+   becoming the page's scroll anchor.
+   ------------------------------------------------------------ */
+.faq { max-width: 720px; margin: 0 auto; overflow-anchor: none; }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary {
+  cursor: pointer; list-style: none;
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+  padding: 17px 0;
+  font: 400 19px/1.4 var(--font-display); color: var(--ink);
+  transition: color .2s ease;
+}
+.faq summary:hover { color: var(--accent); }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after {
+  content: "+"; flex: none; color: var(--accent);
+  font: 400 22px/1 var(--font-mono);
+  transition: transform .3s cubic-bezier(.32, .72, 0, 1);
+}
+.faq details[open] summary::after { transform: rotate(45deg); }
+
+/* grid-rows collapse: smooth open AND close in every engine */
+.faq-c {
+  display: grid; grid-template-rows: 0fr;
+  transition: grid-template-rows .34s cubic-bezier(.32, .72, 0, 1);
+}
+.faq-c > div { overflow: hidden; min-height: 0; }
+.faq-c p {
+  margin: 0; padding-bottom: 18px;
+  max-width: 64ch; font-size: 15.5px; line-height: 1.7; color: var(--ink-2);
+}
+.faq details[open] .faq-c { grid-template-rows: 1fr; }
+@media (prefers-reduced-motion: reduce) { .faq-c { transition: none; } }
+
+/* ------------------------------------------------------------
+   13. BOOKEND: the hero's promise, closed
+   ------------------------------------------------------------ */
+.bookend { text-align: center; }
+.bookend h2 { font-size: clamp(32px, 3.8vw, 46px); line-height: 1.08; margin: 0 0 32px; }
+.bookend h2 .bookend-lead,
+.bookend h2 em { display: inline-block; }
+.bookend h2 em {
+  margin-top: .12em; font-size: 1.16em; line-height: 1;
+  font-style: italic; color: var(--accent);
+}
+.bookend-install {
+  display: inline-flex; align-items: center; gap: 14px;
+  max-width: 100%;
+  background: var(--bg-raised); border: 1px solid var(--line);
+  border-radius: 3px; padding: 12px 14px 12px 20px;
+}
+.bookend-install code {
+  font: 400 14px/1.6 var(--font-mono); color: var(--ink-2);
+  white-space: nowrap; overflow-x: auto;
+}
+.bookend-install .copy-btn { position: static; flex: none; }
+.bookend-alt { margin: 16px 0 0; font: 400 14px/1.6 var(--font-mono); }
+.bookend-alt a { color: var(--muted); text-decoration: none; }
+.bookend-alt a:hover { color: var(--accent); }
+
+/* ------------------------------------------------------------
+   14. FOOTER
+   ------------------------------------------------------------ */
+.site-foot { border-top: 1px solid var(--line); padding: 26px 0 48px; }
+.foot-grid {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 14px 28px; flex-wrap: wrap;
+  font: 400 14px/1.7 var(--font-mono); color: var(--muted);
+}
+.foot-links { display: flex; gap: 22px; flex-wrap: wrap; }
+.foot-links a { color: var(--ink-3); text-decoration: none; }
+.foot-links a:hover { color: var(--accent); }
+.foot-sub { margin: 12px 0 0; font: 400 14px/1.7 var(--font-mono); color: var(--muted); }
+@media (max-width: 560px) {
+  .qs-code pre { white-space: pre-wrap; overflow-x: hidden; overflow-wrap: anywhere; }
+  .bookend-install { flex-direction: column; align-items: stretch; width: 100%; padding: 14px 16px; }
+  .bookend-install code {
+    white-space: normal; overflow: visible; overflow-wrap: anywhere; text-align: left;
+  }
+  .bookend-install .copy-btn { align-self: center; }
+}
+</style>
+</head>
+
+<body>
+<svg class="icon-sprite" aria-hidden="true" focusable="false">
+  <symbol id="icon-copy" viewBox="0 0 24 24">
+    <rect width="14" height="14" x="8" y="8" rx="2"></rect>
+    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path>
+  </symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24">
+    <path d="M20 6 9 17l-5-5"></path>
+  </symbol>
+</svg>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- ================= HEADER ================= -->
+<header class="wrap site-head">
+  <a class="brand" href="#top" aria-label="remek, pronounced reh-mek, Hungarian for excellent. Home">
+    <span class="brand-name">remek</span>
+    <span class="brand-note" aria-hidden="true">[ˈrɛmɛk] · excellent</span>
+  </a>
+  <button class="theme-btn" id="theme-toggle" type="button" aria-label="Change color theme" title="Change color theme">
+    <span class="mode-system" aria-hidden="true">
+      <svg class="theme-icon" viewBox="0 0 24 24" focusable="false">
+        <rect width="20" height="14" x="2" y="3" rx="2"></rect>
+        <line x1="8" x2="16" y1="21" y2="21"></line>
+        <line x1="12" x2="12" y1="17" y2="21"></line>
+      </svg>
+    </span>
+    <span class="mode-light" aria-hidden="true">
+      <svg class="theme-icon" viewBox="0 0 24 24" focusable="false">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2"></path><path d="M12 20v2"></path>
+        <path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path>
+        <path d="M2 12h2"></path><path d="M20 12h2"></path>
+        <path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path>
+      </svg>
+    </span>
+    <span class="mode-dark" aria-hidden="true">
+      <svg class="theme-icon" viewBox="0 0 24 24" focusable="false">
+        <path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"></path>
+      </svg>
+    </span>
+  </button>
+</header>
+
+<main id="main" tabindex="-1">
+
+<!-- ================= HERO ================= -->
+<section class="wrap hero" id="top">
+  <div class="hero-copy">
+    <p class="eyebrow">Governed source and release layer <span class="nowrap">for Agent Skills</span></p>
+    <h1>Your skills are an asset. <em>Govern them like one.</em></h1>
+    <p class="lede">Build a private library of skills you can trust and selectively share. Keep each skill’s provenance and evidence tied to exact bytes, review every change, and control what ships.</p>
+    <div class="hero-ctas">
+      <a class="btn hero-quick" href="#start">Quick start<span class="cta-arrow" aria-hidden="true"> ↓</span></a>
+      <a class="btn btn-ghost" href="https://github.com/benblackthorn/remek">View on GitHub</a>
+    </div>
+    <p class="hero-fine">
+      <span>Python 3.11+ · standard library only</span>
+      <span class="hero-fine-rest"><span>offline</span><span>macOS &amp; native Linux</span><span>MIT</span></span>
+    </p>
+  </div>
+
+  <!-- hero object: explicit input, one private source, two optional release paths -->
+  <div class="hero-art" role="img" aria-label="Flow diagram. One explicit input—a completed-work file, design brief, or reviewed skill import—becomes one private governed source. After release checks pass and the exact plan is reviewed, remek prepares selected skill files plus a manifest for a private or public repository. You commit and push.">
+    <div class="tree" aria-hidden="true">
+      <div class="tree-seed">
+        <div class="tree-node tree-node-seed">
+          <span class="tk">Explicit input</span>
+          <span class="tt">Completed-work file</span>
+          <span class="td">or a design brief · or a reviewed skill import</span>
+        </div>
+      </div>
+      <div class="tree-input-arrow"><span class="varrow-label">AGENT + remek</span><span class="v-line"></span></div>
+      <div class="tree-flow">
+        <div class="tree-node tree-home t-homeA">
+          <span class="tk">your private governed source</span>
+          <span class="tt">your source repository</span>
+          <span class="td">candidate · provenance · policy · cases</span>
+        </div>
+        <div class="tree-gate"><span class="gate-chip">release checks pass · you review the exact plan</span></div>
+        <div class="release-arrow t-relA"><span class="varrow-label">RELEASE</span><span class="v-line-dash"></span></div>
+        <div class="release-arrow t-relB"><span class="varrow-label">RELEASE</span><span class="v-line-dash"></span></div>
+        <div class="tree-node t-opt t-pubA">
+          <span class="tk">private team</span>
+          <span class="tt">private repository</span>
+          <span class="td">selected skill files + manifest</span>
+        </div>
+        <div class="tree-node t-opt t-pubB">
+          <span class="tk">selected public</span>
+          <span class="tt">separate repository</span>
+          <span class="td">selected skill files + manifest</span>
+        </div>
+      </div>
+      <p class="tree-consume">remek prepares selected skill files. You commit; remek verifies.<br>You push; installers place consumer copies.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HOW IT WORKS ================= -->
+<section class="section" id="how"><div class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">How it works</p>
+    <h2>Know the source. Review the change. Control what ships.</h2>
+  </div>
+  <div class="problems reveal">
+    <div class="problem">
+      <span class="num" aria-hidden="true">01</span>
+      <h3>Start from a known source</h3>
+      <p>Your agent writes the confirmed procedure to a file you review. remek starts an owner-only workspace from that file, a design brief, or a reviewed Agent Skill—not the chat—and records its origin.</p>
+    </div>
+    <div class="problem">
+      <span class="num" aria-hidden="true">02</span>
+      <h3>Review the actual change</h3>
+      <p>Before changing a skill or release repository, remek saves an exact plan and rebuilds the real diff for you. If the current state no longer matches the plan, remek refuses to apply it.</p>
+    </div>
+    <div class="problem">
+      <span class="num" aria-hidden="true">03</span>
+      <h3>Record evidence and approval</h3>
+      <p>Hosts, test suites, and external evaluators run outside remek. Evidence binds the exact candidate and evaluation setup; approval binds the candidate, provenance, distribution, and target. Change a bound input and the affected record no longer counts for release.</p>
+    </div>
+    <div class="problem">
+      <span class="num" aria-hidden="true">04</span>
+      <h3>Release only selected skills</h3>
+      <p>remek prepares only the selected skill files and <span class="inline-code">release-manifest.json</span> for the chosen private or public repository. You control visibility, commit, and push; remek does none of them.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- ================= WHO IS IT FOR ================= -->
+<section class="section" id="who"><div class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">Who is it for?</p>
+    <h2>Private skill owners, client work, and platform teams</h2>
+  </div>
+  <div class="problems audiences reveal">
+    <div class="problem">
+      <h3>Private skill owners</h3>
+      <p>Keep personal and business skills in one private Git repository, with provenance and evidence tied to exact versions.</p>
+    </div>
+    <div class="problem">
+      <h3>Client work</h3>
+      <p>Give each client a separate allowlist and private target. Screen declared names, hostnames, and codenames; bind private release context by digest instead of exporting it.</p>
+    </div>
+    <div class="problem">
+      <h3>Platform teams</h3>
+      <p>Set one governance standard across team skills: provenance, exact change plans, version-bound evidence, and pre-push verification.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- ================= SESSION ================= -->
+<section class="section" id="session"><div class="wrap">
+  <div class="session-grid">
+    <div class="session-copy reveal">
+      <p class="eyebrow">Review the exact change before it lands</p>
+      <h2>See the exact diff before the skill changes</h2>
+      <p><code class="inline-command">scaffold</code> starts an owner-only workspace from one completed-work file, design brief, or reviewed Agent Skill. For captured work, it copies only the file your agent shows you.</p>
+      <p><code class="inline-command">accept</code> saves a plan; <code class="inline-command">plan show</code> reconstructs the current diff. <code class="inline-command">apply</code> changes governed source only while that plan still matches—otherwise it refuses and you create a new plan.</p>
+    </div>
+    <div class="reveal">
+      <!-- The terminal stays dark in both themes. Animation begins
+           on scroll into view; reduced motion shows the end state. -->
+      <div class="terminal" id="session-term">
+        <div class="bar" aria-hidden="true">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="bar-title">your agent · governed source</span>
+        </div>
+        <div class="body">
+          <div class="t-line t-ind t-dim" style="--d:.2s">after verifying a flaky-deploy fix</div>
+          <div class="t-line t-you" style="--d:.8s"><span class="t-who">YOU</span><span class="t-message">Capture this as a skill with remek.</span></div>
+          <div class="t-line t-agent" style="--d:1.5s"><span class="t-who">AGENT</span><span class="t-message">I saved only the confirmed steps to <span class="t-ink">/work/deploy-safely.md</span>. I’ll scaffold from that file.</span></div>
+          <div class="t-line t-tool" style="--d:2.4s"><span class="t-type" style="--d:2.5s">./remek scaffold --name deploy-safely --origin captured --source /work/deploy-safely.md …</span></div>
+          <div class="t-line t-tool t-ok" style="--d:3.6s">scaffold: disposable workspace created</div>
+          <div class="t-line t-agent" style="--d:4.3s"><span class="t-who">AGENT</span><span class="t-message">I completed the candidate, provenance, policy, and both case sets. Now I’ll save the accept plan.</span></div>
+          <div class="t-line t-tool" style="--d:5.1s"><span class="t-type t-type-fast" style="--d:5.2s">./remek accept --workspace /work/deploy-safely --output /tmp/accept.json</span></div>
+          <div class="t-line t-tool t-ok" style="--d:6.1s">accept: exact plan saved; review it with plan show before apply</div>
+          <div class="t-line t-tool" style="--d:6.8s"><span class="t-type t-type-fast" style="--d:6.9s">./remek plan show /tmp/accept.json</span></div>
+          <div class="t-line t-agent" style="--d:7.8s"><span class="t-who">AGENT</span><span class="t-message">The plan reconstructs exactly. Nothing has changed yet. Apply?</span></div>
+          <div class="t-line t-you" style="--d:8.6s"><span class="t-who">YOU</span><span class="t-message">Apply.</span></div>
+          <div class="t-line t-tool" style="--d:9.3s"><span class="t-type t-type-fast" style="--d:9.4s">./remek apply /tmp/accept.json</span></div>
+          <div class="t-line t-agent" style="--d:10.3s"><span class="t-who">AGENT</span><span class="t-message">Applied. The reviewed skill is draft and source-only.<span class="t-caret" aria-hidden="true"></span></span></div>
+        </div>
+      </div>
+      <p class="terminal-caption">what you saw is what landed.</p>
+    </div>
+  </div>
+
+  <!-- the durable mutation protocol, in one line -->
+  <div class="rail reveal" role="img" aria-label="the agent prepares; remek saves the exact plan; you review; apply lands only that plan">
+    <span>agent <em>prepares</em></span>
+    <span class="rule" aria-hidden="true"></span>
+    <span>remek <em>saves the exact plan</em></span>
+    <span class="rule" aria-hidden="true"></span>
+    <span>you <em>review</em></span>
+    <span class="rule" aria-hidden="true"></span>
+    <span>apply <em>lands only that plan</em></span>
+  </div>
+</div></section>
+
+<!-- ================= GATES ================= -->
+<section class="section" id="gates"><div class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">Skill lifecycle</p>
+    <h2>From owned work to reviewed release files</h2>
+  </div>
+  <div class="gates-wrap reveal">
+    <svg class="gates-svg" id="gates-svg" aria-hidden="true" focusable="false"></svg>
+    <ol class="gates-flow">
+      <li>
+        <span class="g-num" aria-hidden="true">1</span>
+        <span class="g-name">Author</span>
+        <span class="g-desc">Your agent works in an owner-only workspace from one completed-work file, one design brief, or one reviewed Agent Skill.</span>
+      </li>
+      <li>
+        <span class="g-num" aria-hidden="true">2</span>
+        <span class="g-name">Accept</span>
+        <span class="g-desc">remek saves an exact plan; you inspect the reconstructed diff before apply.</span>
+      </li>
+      <li>
+        <span class="g-num" aria-hidden="true">3</span>
+        <span class="g-name">Record evidence</span>
+        <span class="g-desc">You record observations from a named host, test suite, or external evaluator. remek runs none of them.</span>
+      </li>
+      <li>
+        <span class="g-num" aria-hidden="true">4</span>
+        <span class="g-name">Approve</span>
+        <span class="g-desc">The approval records the exact candidate, provenance, distribution, target, exceptions, reviewer, and date. It does not grant access.</span>
+      </li>
+      <li>
+        <span class="g-num" aria-hidden="true">5</span>
+        <span class="g-name">Release</span>
+        <span class="g-desc">Prepare the selected skill payload and manifest, then verify the committed mirror before a separate push.</span>
+      </li>
+    </ol>
+  </div>
+</div></section>
+
+<!-- ================= QUICK START ================= -->
+<section class="section" id="start"><div class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">Quick start</p>
+    <h2>Start with your coding agent</h2>
+  </div>
+
+  <div class="qs-grid reveal">
+    <aside class="agent-card">
+      <div class="agent-card-head">
+        <span class="qs-label">Agent setup</span>
+        <button class="copy-control copy-btn" type="button" data-copy="#agent-install-prompt" data-copy-text aria-label="Copy agent setup prompt" aria-live="polite"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span><span class="copy-label" aria-hidden="true"><span class="copy-label-state copy-label-default">Copy</span><span class="copy-label-state copy-label-success">Copied</span><span class="copy-label-state copy-label-error">Retry</span></span></button>
+      </div>
+      <blockquote id="agent-install-prompt">"Install remek for me with <span class="inline-code">gh skill install benblackthorn/remek remek --scope user</span>. Run it interactively and let me choose the agent when GitHub CLI asks."</blockquote>
+    </aside>
+
+    <div class="qs-steps">
+      <div class="qs-step">
+        <div class="qs-step-head"><span class="g-num" aria-hidden="true">1</span><h3 class="g-name">Install</h3></div>
+        <div class="qs-code">
+          <div class="qs-code-bar">
+            <div class="cmd-tabs" role="group" aria-label="Installer"><button class="cmd-tab" type="button" aria-pressed="true" data-cmd="gh skill install benblackthorn/remek remek --scope user">gh skill</button><button class="cmd-tab" type="button" aria-pressed="false" data-cmd="npx skills add benblackthorn/remek -g">npx · public</button></div>
+            <button class="copy-control copy-btn" type="button" data-copy="#qs-install" aria-label="Copy install command" aria-live="polite"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span><span class="copy-label" aria-hidden="true"><span class="copy-label-state copy-label-default">Copy</span><span class="copy-label-state copy-label-success">Copied</span><span class="copy-label-state copy-label-error">Retry</span></span></button>
+          </div>
+          <pre id="qs-install">gh skill install benblackthorn/remek remek --scope user</pre>
+        </div>
+        <noscript><p class="qs-cap">Public alternative: <span class="inline-code">npx skills add benblackthorn/remek -g</span></p></noscript>
+        <p class="qs-cap"><span class="inline-code">gh skill</span> is public preview. <span class="inline-code">npx skills</span> documents anonymous telemetry and opt-outs but no complete private-repository contract. The source repository must be public or accessible.</p>
+      </div>
+      <div class="qs-step">
+        <div class="qs-step-head"><span class="g-num" aria-hidden="true">2</span><h3 class="g-name">Initialize</h3></div>
+        <p class="qs-body">Tell your agent: <em class="trigger">"Initialize a governed private skills source in an existing private Git repository at an absolute path I confirm. Show and explain the plan before <span class="trigger-tail">applying it."<button class="copy-control copy-inline" type="button" data-copy-value="Initialize a governed private skills source in an existing private Git repository at an absolute path I confirm. Show and explain the plan before applying it." data-copy-success="Initialization prompt copied" aria-label="Copy initialization prompt" aria-live="polite" title="Copy initialization prompt"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span></button></span></em></p>
+        <p class="qs-cap">remek never creates, commits, or pushes the repository.</p>
+      </div>
+      <div class="qs-step">
+        <div class="qs-step-head"><span class="g-num" aria-hidden="true">3</span><h3 class="g-name">Capture your first skill</h3></div>
+        <p class="qs-body">Tell your agent: <em class="trigger">"Capture this as a skill with <span class="trigger-tail">remek."<button class="copy-control copy-inline" type="button" data-copy-value="Capture this as a skill with remek." data-copy-success="Capture prompt copied" aria-label="Copy capture prompt" aria-live="polite" title="Copy capture prompt"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span></button></span></em></p>
+        <p class="qs-cap">Your agent writes the confirmed procedure to one file and shows you the accept plan before applying it. remek captures that file—not the chat or neighboring source files.</p>
+      </div>
+    </div>
+
+  </div>
+</div></section>
+
+<!-- ================= FAQ ================= -->
+<section class="section" id="faq"><div class="wrap">
+  <div class="section-head center reveal">
+    <p class="eyebrow">FAQ</p>
+    <h2>Common questions</h2>
+  </div>
+  <div class="faq reveal">
+    <details name="faq">
+      <summary>What does remek do?</summary>
+      <div class="faq-c"><div><p>remek ties each skill’s provenance, planned changes, evidence, approval, and release files to exact versions. Your agent authors the skill; Git commits and pushes; installers place consumer copies.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary><span>How is remek different from <span class="inline-code">gh skill</span> and <span class="inline-code">npx skills</span>?</span></summary>
+      <div class="faq-c"><div><p><span class="inline-code">gh skill</span> and <span class="inline-code">npx skills</span> install consumer copies for coding agents. remek governs the source before installation: provenance, exact plans, evidence, approvals, release contents, and pre-push verification. Git still owns commits and pushes.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Does remek replace tools that write skills?</summary>
+      <div class="faq-c"><div><p>No. remek is delivered as an Agent Skill so your coding agent can operate it, but its job is governance. Your agent—or a separate authoring workflow you choose—writes inside the owner-only workspace from completed work, a design, or a reviewed import. remek does not invoke or certify any authoring tool.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>What can a skill start from?</summary>
+      <div class="faq-c"><div><p>remek does not read or save a chat. Captured work uses one existing file; a design uses one brief; an import uses one reviewed compatible Agent Skill. Captured and designed inputs are copied exactly into <span class="inline-code">.remek/skills/&lt;name&gt;/sources/</span>. An import records its upstream repository, ref, and candidate identity.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Can I bring an existing Agent Skill into remek?</summary>
+      <div class="faq-c"><div><p>Yes, as a reviewed compatible import. remek snapshots the candidate, strips only recognized installer metadata, and requires upstream identity, policy, and cases before acceptance, plus complete rights information before release. It does not automatically convert arbitrary files or claim their provenance.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Can remek improve a skill I already have?</summary>
+      <div class="faq-c"><div><p>Your agent can revise a governed skill; remek does not decide whether the revision is better. You review an exact plan before it lands. Changing the candidate returns the skill to draft and clears its previous evidence and approvals. If the governed source changed while the revision was prepared, remek refuses.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Who designs and runs skill evaluations?</summary>
+      <div class="faq-c"><div><p>Your authoring workflow defines the cases and graders; external sessions, test suites, or evaluators run them. remek records their declared setup and results, detects staleness, and cannot prove an evaluator was honest.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Can remek govern skills inside an existing project?</summary>
+      <div class="faq-c"><div><p>Yes. Project mode governs an exact selected set under <span class="inline-code">.agents/skills/</span> and leaves installer-managed or otherwise foreign neighbors alone. Existing project skills still require an explicit reviewed import before remek owns them.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Which coding agents can I use, and do I need the terminal?</summary>
+      <div class="faq-c"><div><p>remek uses the Agent Skills format and also has a plain CLI. After installation, ask in plain language; your coding agent can run the CLI and explain each plan. An installer's host list shows placement, not identical routing or behavior. The recorded routing evidence is host- and version-specific; verify the host and version you intend to use.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Where do my skills live? Does remek upload anything?</summary>
+      <div class="faq-c"><div><p>In repositories you own. remek has no account or telemetry and never uploads skill payload or pushes. Ordinary workflows are offline. Release workflows use bounded local Git checks and an authenticated GitHub CLI query for the exact target identity and visibility.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>How are private and public releases separated?</summary>
+      <div class="faq-c"><div><p>Every skill starts source-only. Each distribution is an exact private or public allowlist with its own target and evidence policy. Public release also requires public eligibility, complete rights, current evidence and approval, blocked private disclosure, and a separate public repository and history. remek-managed mirror content is limited to selected skills and <span class="inline-code">release-manifest.json</span>; <span class="inline-code">.remek/</span> stays in the source. Screening is defense in depth; approval is not access control.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Can I use remek for client work under NDA?</summary>
+      <div class="faq-c"><div><p>Yes. Give each client a separate distribution allowlist and private target. With private disclosure set to block, remek flags declared names, hostnames, and codenames; detected credential-shaped content cannot be excepted. Manifests digest private release context instead of exporting it, while retaining the opaque source commit for lineage. remek never copies the source’s <span class="inline-code">.remek/</span> tree into a mirror.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Can it break or overwrite my skills?</summary>
+      <div class="faq-c"><div><p>Only <code class="inline-command">scaffold</code> directly creates a new owner-only workspace. Governed-source and mirror changes use saved plans that refuse drift; handled failures roll back or name residue. Guarantees cover macOS or native Linux on cooperative local POSIX storage—not Windows, WSL, network filesystems, crashes, power loss, or other writers.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>What will remek never do?</summary>
+      <div class="faq-c"><div><p>It never calls a model or evaluator, executes candidate content or scripts, writes host skill directories, creates repositories, commits, pushes, tags, publishes, changes visibility, controls access, or updates consumer copies. Your skills remain plain folders in repositories you own.</p></div></div>
+    </details>
+  </div>
+</div></section>
+
+<!-- ================= BOOKEND ================= -->
+<section class="section bookend"><div class="wrap reveal">
+  <h2><span class="bookend-lead">Your skills are an asset.</span><br><em>Govern them like one.</em></h2>
+  <div class="bookend-install">
+    <code id="bookend-cmd">gh skill install benblackthorn/remek remek --scope user</code>
+    <button class="copy-control copy-btn" type="button" data-copy="#bookend-cmd" aria-label="Copy install command" aria-live="polite"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span><span class="copy-label" aria-hidden="true"><span class="copy-label-state copy-label-default">Copy</span><span class="copy-label-state copy-label-success">Copied</span><span class="copy-label-state copy-label-error">Retry</span></span></button>
+  </div>
+  <p class="bookend-alt"><a href="https://github.com/benblackthorn/remek#readme">Read the workflow and boundaries on GitHub →</a></p>
+</div></section>
+
+</main>
+
+<!-- ================= FOOTER ================= -->
+<footer class="site-foot"><div class="wrap">
+  <div class="foot-grid">
+    <span>remek · MIT · built by Benedek Blackthorn</span>
+    <div class="foot-links">
+      <a href="https://github.com/benblackthorn/remek">GitHub</a>
+      <a href="https://agentskills.io/">Agent Skills format</a>
+    </div>
+  </div>
+  <p class="foot-sub">remek manages plans, governance records, and release preparation. Git owns commits and transport. Installers place consumer copies.</p>
+</div></footer>
+
+<script>
+/* ============================================================
+   Behavior. Dependency-free, organized as small named modules:
+
+     Theme      switch between system and its visible opposite
+     CopyText   clipboard with legacy fallback + button states
+     InstallTabs  gh skill / npx command variants
+     Motion     scroll reveals + terminal choreography
+     HeroFine   responsive separator in the hero fine print
+     Diagrams   measured SVG connector for the lifecycle spine
+
+   Shared helpers live in Util. Everything initializes at the
+   bottom in one place.
+   ============================================================ */
+(function () {
+  "use strict";
+
+  var root = document.documentElement;
+
+  /* ---------------------------------------------------------
+     Util: tiny shared helpers
+     --------------------------------------------------------- */
+  var Util = {
+    qs: function (sel, scope) { return (scope || document).querySelector(sel); },
+    qsa: function (sel, scope) {
+      return Array.prototype.slice.call((scope || document).querySelectorAll(sel));
+    },
+    reducedMotion: function () {
+      return matchMedia("(prefers-reduced-motion: reduce)").matches;
+    },
+    /* rAF-throttled resize listener shared by every module */
+    onResize: (function () {
+      var fns = [], raf;
+      window.addEventListener("resize", function () {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(function () {
+          fns.forEach(function (fn) { fn(); });
+        });
+      });
+      return function (fn) { fns.push(fn); };
+    })(),
+    /* re-run layout-measuring work once fonts settle */
+    onFontsReady: function (fn) {
+      if (document.fonts && document.fonts.ready) { document.fonts.ready.then(fn); }
+    },
+    svgEl: function (name, attrs) {
+      var el = document.createElementNS("http://www.w3.org/2000/svg", name);
+      for (var k in attrs) { el.setAttribute(k, attrs[k]); }
+      return el;
+    }
+  };
+
+  /* ---------------------------------------------------------
+     Theme: starts from the system appearance, then switches to
+     its visible opposite and back to system. Explicit legacy
+     choices that match the OS also skip straight to the opposite.
+     Persists to localStorage("remek-theme") and tracks live OS
+     changes. Initial state was set pre-paint in <head>.
+     --------------------------------------------------------- */
+  var Theme = (function () {
+    var toggle = Util.qs("#theme-toggle");
+    var themeColor = Util.qs("#theme-color");
+    var mq = matchMedia("(prefers-color-scheme: dark)");
+
+    function systemTheme() {
+      return mq.matches ? "dark" : "light";
+    }
+
+    function opposite(theme) {
+      return theme === "dark" ? "light" : "dark";
+    }
+
+    function nextMode(mode, theme) {
+      if (mode === "system" || theme === systemTheme()) {
+        return opposite(theme);
+      }
+      return "system";
+    }
+
+    function describe(mode, theme) {
+      if (!toggle) { return; }
+      var next = nextMode(mode, theme);
+      var current = mode === "system" ? "system (currently " + theme + ")" : mode;
+      var label = "Color theme: " + current + ". Change to " + next + ".";
+      toggle.setAttribute("aria-label", label);
+      toggle.setAttribute("title", label);
+    }
+
+    function apply(mode) {
+      var theme = mode === "system" ? systemTheme() : mode;
+      root.setAttribute("data-theme", theme);
+      root.setAttribute("data-theme-mode", mode);
+      if (themeColor) { themeColor.setAttribute("content", theme === "dark" ? "#161619" : "#FAF7F0"); }
+      describe(mode, theme);
+    }
+
+    function init() {
+      apply(root.getAttribute("data-theme-mode") || "system");
+      if (toggle) {
+        toggle.addEventListener("click", function () {
+          var current = root.getAttribute("data-theme-mode") || "system";
+          var theme = root.getAttribute("data-theme") || systemTheme();
+          var next = nextMode(current, theme);
+          apply(next);
+          try { localStorage.setItem("remek-theme", next); } catch (e) { /* private mode */ }
+        });
+      }
+      try {
+        mq.addEventListener("change", function () {
+          apply(root.getAttribute("data-theme-mode") || "system");
+        });
+      } catch (e) { /* older engines lack addEventListener on MQL */ }
+    }
+
+    return { init: init };
+  })();
+
+  /* ---------------------------------------------------------
+     CopyText: clipboard writes with a legacy execCommand
+     fallback, plus the three-state button choreography.
+     data-copy holds a selector; data-copy-value inlines text;
+     data-copy-text strips UI labels from the source element.
+     --------------------------------------------------------- */
+  var CopyText = (function () {
+    function textWithoutLabels(el) {
+      var clone = el.cloneNode(true);
+      Util.qsa("button, .tag", clone).forEach(function (n) { n.remove(); });
+      return clone.textContent.trim();
+    }
+
+    function legacyCopy(text) {
+      return new Promise(function (resolve, reject) {
+        var active = document.activeElement;
+        var restoreFocus = active && active !== document.body && active !== document.documentElement && active.tabIndex >= 0;
+        var field = document.createElement("textarea");
+        field.value = text;
+        field.setAttribute("readonly", "");
+        field.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none";
+        document.body.appendChild(field);
+        field.select();
+        field.setSelectionRange(0, field.value.length);
+        try {
+          if (document.execCommand("copy")) { resolve(); } else { reject(new Error("Copy failed")); }
+        } catch (error) {
+          reject(error);
+        } finally {
+          field.remove();
+          if (restoreFocus && active.isConnected && typeof active.focus === "function") {
+            try { active.focus({ preventScroll: true }); }
+            catch (error) { active.focus(); }
+          }
+        }
+      });
+    }
+
+    function write(text) {
+      var attempts = [];
+      if (navigator.clipboard && window.isSecureContext) {
+        var timeout = new Promise(function (_, reject) {
+          setTimeout(function () { reject(new Error("Clipboard timed out")); }, 1200);
+        });
+        try {
+          attempts.push(Promise.race([navigator.clipboard.writeText(text), timeout]));
+        } catch (error) { /* the synchronous path below can still succeed */ }
+      }
+      /* Start execCommand while the click still owns user activation.
+         Both paths write identical text; the first success wins. */
+      attempts.push(legacyCopy(text));
+      return new Promise(function (resolve, reject) {
+        var pending = attempts.length, lastError;
+        attempts.forEach(function (attempt) {
+          attempt.then(resolve, function (error) {
+            lastError = error;
+            pending -= 1;
+            if (pending === 0) { reject(lastError || new Error("Copy failed")); }
+          });
+        });
+      });
+    }
+
+    function remember(btn) {
+      if (btn.dataset.copyRemembered === "true") { return; }
+      btn.dataset.copyRemembered = "true";
+      btn.dataset.copyAria = btn.getAttribute("aria-label") || "Copy";
+      btn.dataset.copyTitle = btn.getAttribute("title") || "";
+    }
+
+    function reset(btn) {
+      btn.classList.remove("is-copying", "is-copied", "is-error");
+      btn.setAttribute("aria-label", btn.dataset.copyAria);
+      if (btn.dataset.copyTitle) { btn.setAttribute("title", btn.dataset.copyTitle); }
+      else { btn.removeAttribute("title"); }
+      if (btn.classList.contains("copy-instant")) {
+        requestAnimationFrame(function () { btn.classList.remove("copy-instant"); });
+      }
+    }
+
+    function begin(btn) {
+      remember(btn);
+      clearTimeout(btn.copyTimer);
+      btn.classList.remove("is-copied", "is-error");
+      btn.classList.add("is-copying");
+      btn.setAttribute("aria-label", "Copying");
+    }
+
+    function settle(btn, ok) {
+      remember(btn);
+      clearTimeout(btn.copyTimer);
+      var success = btn.getAttribute("data-copy-success") || "Copied";
+      btn.classList.remove("is-copying");
+      btn.classList.toggle("is-copied", ok);
+      btn.classList.toggle("is-error", !ok);
+      btn.setAttribute("aria-label", ok ? success : "Copy failed. Try again.");
+      btn.setAttribute("title", ok ? success : "Copy failed. Try again.");
+      btn.copyTimer = setTimeout(function () { reset(btn); }, 1800);
+    }
+
+    function init() {
+      Util.qsa(".copy-control").forEach(function (btn) {
+        btn.addEventListener("click", function (event) {
+          if (btn.classList.contains("is-copying")) { return; }
+          btn.classList.toggle("copy-instant", event.detail === 0);
+          begin(btn);
+          var value = btn.getAttribute("data-copy-value");
+          var target = value === null ? Util.qs(btn.getAttribute("data-copy")) : null;
+          if (value === null && !target) { settle(btn, false); return; }
+          var text = value !== null
+            ? value
+            : (btn.hasAttribute("data-copy-text") ? textWithoutLabels(target) : target.textContent.trim());
+          write(text).then(function () { settle(btn, true); }, function () { settle(btn, false); });
+        });
+      });
+    }
+
+    return { init: init };
+  })();
+
+  /* ---------------------------------------------------------
+     InstallTabs: gh skill / npx variants of quick-start step
+     01; COPY copies whichever is showing.
+     --------------------------------------------------------- */
+  var InstallTabs = (function () {
+    function init() {
+      var pre = Util.qs("#qs-install");
+      var tabs = Util.qsa(".cmd-tab");
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          tabs.forEach(function (t) { t.setAttribute("aria-pressed", t === tab ? "true" : "false"); });
+          if (pre) { pre.textContent = tab.getAttribute("data-cmd"); }
+        });
+      });
+    }
+    return { init: init };
+  })();
+
+  /* ---------------------------------------------------------
+     Motion: reveals .reveal blocks and starts the terminal
+     session as they enter the viewport. With reduced motion,
+     or without IntersectionObserver, everything is visible.
+     --------------------------------------------------------- */
+  var Motion = (function () {
+    function showAll(term) {
+      Util.qsa(".reveal").forEach(function (el) { el.classList.add("in"); });
+      if (term) { term.classList.add("play"); }
+    }
+
+    function init() {
+      var term = Util.qs("#session-term");
+      if (!("IntersectionObserver" in window) || Util.reducedMotion()) {
+        showAll(term);
+        return;
+      }
+      try {
+        var io = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) { return; }
+            entry.target.classList.add("in");
+            if (term && (entry.target === term || entry.target.contains(term))) {
+              term.classList.add("play");
+            }
+            io.unobserve(entry.target);
+          });
+        }, { threshold: 0.18 });
+        Util.qsa(".reveal").forEach(function (el) {
+          if (el.getBoundingClientRect().top < window.innerHeight) { el.classList.add("in"); }
+          io.observe(el);
+        });
+        if (term) {
+          if (term.getBoundingClientRect().top < window.innerHeight) { term.classList.add("play"); }
+          io.observe(term);
+        }
+        root.classList.add("motion-ready");
+      } catch (e) {
+        showAll(term);
+      }
+    }
+
+    return { init: init };
+  })();
+
+  /* ---------------------------------------------------------
+     HeroFine: shows the separator after "Standard library
+     only" only while both proof groups share a rendered row.
+     --------------------------------------------------------- */
+  var HeroFine = (function () {
+    var el;
+    function update() {
+      if (!el || el.children.length < 2) { return; }
+      var firstTop = el.children[0].offsetTop;
+      var restTop = el.children[1].offsetTop;
+      el.classList.toggle("is-single-line", Math.abs(firstTop - restTop) < 2);
+    }
+    function init() {
+      el = Util.qs(".hero-fine");
+      update();
+    }
+    return { init: init, update: update };
+  })();
+
+  /* ---------------------------------------------------------
+     Diagrams: one dashed line threads the five lifecycle steps,
+     row or stacked, with an arrowhead before each later step.
+     It redraws from live element centers on resize and once
+     fonts settle.
+     --------------------------------------------------------- */
+  var Diagrams = (function () {
+    var HEAD_W = 4.5, HEAD_H = 6;
+
+    function clear(svg, w, h) {
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      svg.textContent = "";
+    }
+    function centerX(rect, box) { return Math.round(rect.left + rect.width / 2 - box.left) + 0.5; }
+    function centerY(rect, box) { return Math.round(rect.top + rect.height / 2 - box.top) + 0.5; }
+    function downHead(svg, cls, x, yTip) {
+      svg.appendChild(Util.svgEl("path", {
+        d: "M" + (x - HEAD_W) + "," + (yTip - HEAD_H) +
+           " L" + (x + HEAD_W) + "," + (yTip - HEAD_H) +
+           " L" + x + "," + yTip + " Z",
+        "class": cls
+      }));
+    }
+    function rightHead(svg, cls, xTip, y) {
+      svg.appendChild(Util.svgEl("path", {
+        d: "M" + (xTip - HEAD_H) + "," + (y - HEAD_W) +
+           " L" + (xTip - HEAD_H) + "," + (y + HEAD_W) +
+           " L" + xTip + "," + y + " Z",
+        "class": cls
+      }));
+    }
+    function line(svg, cls, d) {
+      svg.appendChild(Util.svgEl("path", { d: d, "class": cls }));
+    }
+
+    /* Gates spine: circle centers joined by one dashed line
+       that runs behind the circles (they carry the page
+       background), with an arrowhead before gates two to five */
+    function gatesSpine() {
+      var svg = Util.qs("#gates-svg");
+      if (!svg) { return; }
+      var nums = Util.qsa(".gates-flow .g-num");
+      if (nums.length < 2) { return; }
+
+      var box = svg.getBoundingClientRect();
+      if (box.width === 0) { return; }
+      clear(svg, box.width, box.height);
+
+      var rects = nums.map(function (el) { return el.getBoundingClientRect(); });
+      var first = rects[0], last = rects[rects.length - 1];
+      var stacked = Math.abs(first.top - last.top) > 4;
+
+      if (stacked) {
+        var cx = centerX(first, box);
+        var y0 = centerY(first, box);
+        var y1 = centerY(last, box);
+        line(svg, "gs", "M" + cx + "," + y0 + " V" + y1);
+        rects.slice(1).forEach(function (rect) {
+          var x = centerX(rect, box);
+          var tipY = Math.round(centerY(rect, box) - rect.height / 2 - 3);
+          downHead(svg, "gs-head", x, tipY);
+        });
+      } else {
+        var cy = centerY(first, box);
+        var x0 = centerX(first, box);
+        var x1 = centerX(last, box);
+        line(svg, "gs", "M" + x0 + "," + cy + " H" + x1);
+        rects.slice(1).forEach(function (rect) {
+          var y = centerY(rect, box);
+          var tipX = Math.round(centerX(rect, box) - rect.width / 2 - 3);
+          rightHead(svg, "gs-head", tipX, y);
+        });
+      }
+    }
+
+    function drawAll() {
+      gatesSpine();
+    }
+
+    function init() {
+      drawAll();
+      Util.onFontsReady(drawAll);
+      Util.onResize(drawAll);
+    }
+
+    return { init: init };
+  })();
+
+  /* ---------------------------------------------------------
+     Boot
+     --------------------------------------------------------- */
+  root.classList.add("js");
+  Theme.init();
+  CopyText.init();
+  InstallTabs.init();
+  Motion.init();
+  HeroFine.init();
+  Util.onResize(HeroFine.update);
+  Util.onFontsReady(HeroFine.update);
+  Diagrams.init();
+})();
+</script>
+</body>
+</html>
