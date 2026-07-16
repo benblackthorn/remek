@@ -1,0 +1,14 @@
+{
+  "kind": "provenance",
+  "license": "MIT",
+  "origin": "designed",
+  "rights": "owned",
+  "rightsBasis": "Original project design, implementation, and documentation.",
+  "schema": "remek.1",
+  "skill": "remek",
+  "sourceDigest": "c2427405039951b18831649e7b0591671cd2df522be8dbcb9807b0bb25909b8e",
+  "sourceLabel": "design-brief.md",
+  "upstreamCandidate": "",
+  "upstreamRef": "",
+  "upstreamRepository": ""
+}

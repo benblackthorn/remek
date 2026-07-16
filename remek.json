@@ -1,0 +1,9 @@
+{
+  "governedSkills": [
+    "remek"
+  ],
+  "kind": "repository",
+  "repositoryId": "001c6bd0-744e-422f-8771-14e4068c6769",
+  "schema": "remek.1",
+  "skillsRoot": "skills"
+}

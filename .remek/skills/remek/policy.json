@@ -1,0 +1,8 @@
+{
+  "exposure": "public-eligible",
+  "kind": "skill-policy",
+  "lifecycle": "ready",
+  "schema": "remek.1",
+  "skill": "remek",
+  "stateReason": "Owner reviewed the v1.0.1 candidate after installed-bundle, complete manual CLI, and fresh routing validation."
+}

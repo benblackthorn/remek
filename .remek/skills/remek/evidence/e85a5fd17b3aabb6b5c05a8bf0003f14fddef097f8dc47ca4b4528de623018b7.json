@@ -1,0 +1,75 @@
+{
+  "artifacts": [
+    {
+      "digest": "1b6063e29cdfe200e2525a2ebc57ab5feaa5a9abf67cc402088debf0d2730a05",
+      "label": "evaluation-report"
+    }
+  ],
+  "candidate": "d1aa636202a9910ef96667740d3bcf8e063aaf0b95f698b986ad32d9e56d3b80",
+  "caseSetDigest": "a0876043eb2c093d3d9b986bda775d183d178b9ee353e2c55f1f8a71bc36f12c",
+  "distribution": null,
+  "evidenceKind": "routing",
+  "kind": "eval-receipt",
+  "profile": {
+    "claim": "regression",
+    "kind": "manual-host",
+    "minimumPassCount": 3,
+    "name": "codex-cli",
+    "runConfigDigest": "af1ece1930c3293a2f2ff7e7977a882aa477158d8080a7af3e4893dc49717d52",
+    "trialCount": 3,
+    "version": "0.144.5 / GPT-5"
+  },
+  "results": [
+    {
+      "caseId": "init",
+      "passCount": 3
+    },
+    {
+      "caseId": "capture",
+      "passCount": 3
+    },
+    {
+      "caseId": "revise",
+      "passCount": 3
+    },
+    {
+      "caseId": "evidence",
+      "passCount": 3
+    },
+    {
+      "caseId": "release",
+      "passCount": 3
+    },
+    {
+      "caseId": "audit",
+      "passCount": 3
+    },
+    {
+      "caseId": "install",
+      "passCount": 3
+    },
+    {
+      "caseId": "author",
+      "passCount": 3
+    },
+    {
+      "caseId": "evaluate",
+      "passCount": 3
+    },
+    {
+      "caseId": "publish",
+      "passCount": 3
+    },
+    {
+      "caseId": "git-release",
+      "passCount": 3
+    },
+    {
+      "caseId": "consumers",
+      "passCount": 3
+    }
+  ],
+  "routingCatalogDigest": "1db026887599a1dc3fad63ee039a70df2deaae824a65b23a15f341cac5a276a0",
+  "schema": "remek.1",
+  "skill": "remek"
+}

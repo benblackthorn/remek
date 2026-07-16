@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Run the source check."""
+
+import os
+import sys
+
+r = os.path.dirname(os.path.realpath(__file__))
+a = sys.argv[1:]
+j = a[:1] == ["--json"]
+os.execv(r + "/remek", [r + "/remek", "--root", r, *a[:j], "check", *a[j:]])

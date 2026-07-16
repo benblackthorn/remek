@@ -1,0 +1,70 @@
+{
+  "cases": [
+    {
+      "expectations": [
+        "The plan binds exact inputs and changes no protected state.",
+        "Scaffold creates only an owner-private workspace outside protected trees."
+      ],
+      "id": "authoring",
+      "prompt": "Initialize a source and scaffold from completed owned work."
+    },
+    {
+      "expectations": [
+        "Accept lands only the reviewed candidate and provenance.",
+        "Candidate drift refuses without protected-state mutation."
+      ],
+      "id": "accept",
+      "prompt": "Accept a completed workspace, then apply its plan after drift."
+    },
+    {
+      "expectations": [
+        "Evidence binds candidate, cases, run configuration, trials, and report digest.",
+        "remek calls no model, evaluator, or candidate script."
+      ],
+      "id": "evidence",
+      "prompt": "Record release evidence from completed external evaluation runs."
+    },
+    {
+      "expectations": [
+        "Approval binds the exact release context and owner reviews.",
+        "Approval is never represented as access control."
+      ],
+      "id": "approval",
+      "prompt": "Record approval for a governed distribution."
+    },
+    {
+      "expectations": [
+        "The mirror contains only approved payload and its lineage manifest.",
+        "remek does not commit, push, tag, publish, or change visibility."
+      ],
+      "id": "release",
+      "prompt": "Prepare and verify an approved distribution before push."
+    },
+    {
+      "expectations": [
+        "Git, target, or proof drift blocks release.",
+        "Refusal precedes mutation or restores the exact prior state."
+      ],
+      "id": "release-refusal",
+      "prompt": "Attempt release with dirty Git state and a mismatched target."
+    },
+    {
+      "expectations": [
+        "Audit never imports or executes candidate content.",
+        "Credential findings never expose matched text."
+      ],
+      "id": "audit",
+      "prompt": "Audit an untrusted skill for governance and credential findings."
+    },
+    {
+      "expectations": [
+        "Repair changes only managed structure through a reviewed plan.",
+        "Foreign data is preserved and residue is reported."
+      ],
+      "id": "repair",
+      "prompt": "Repair a damaged source containing unrelated user files."
+    }
+  ],
+  "kind": "behavior-cases",
+  "schema": "remek.1"
+}

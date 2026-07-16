@@ -1,0 +1,4 @@
+interface:
+  display_name: "remek"
+  short_description: "Govern and release Agent Skills you own."
+  default_prompt: "Check this governed skills source and plan only the safe required changes."

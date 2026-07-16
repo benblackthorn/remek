@@ -1,0 +1,39 @@
+name: gate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
+      - run: |
+          ./gate
+          run() { uv run --no-project --python "${{ matrix.python }}" --with-requirements requirements-dev.txt "$@"; }
+          run -m pytest tests/ -q
+          run -m pytest tests/ --collect-only -q
+          uvx ruff@0.15.20 check skills tests tools gate remek
+          uvx ruff@0.15.20 format --check skills tests tools
+          uvx mypy@2.1.0 --strict skills/remek/scripts/cli.py
+          uvx mypy@2.1.0 --strict skills/remek/toolchain/scripts/cli.py skills/remek/toolchain/runtime
+          uvx mypy@2.1.0 --strict tools/verify_release_manifest.py
+          python3 tools/verify_release_manifest.py --self-test
+          uv run --no-project --python "3.13" --with tiktoken==0.11.0 python tools/repo_tokens.py
+          git diff --check
+      - if: runner.os == 'Linux' && matrix.python == '3.11'
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
