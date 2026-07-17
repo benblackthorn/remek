@@ -222,6 +222,18 @@ def test_scaffold_is_absent_private_and_outside_source(tmp_path, monkeypatch):  
     with pytest.raises(RemekError, match="skill name"):
         scaffold_workspace(root, invalid, name="Invalid", origin="captured", source=source)
     assert not invalid.exists()
+    actual_parent = tmp_path / "actual-parent"
+    actual_parent.mkdir()
+    alias = tmp_path / "alias-parent"
+    alias.symlink_to(actual_parent, target_is_directory=True)
+    with pytest.raises(RemekError, match=r"actual workspace path resolves to .*repair: rerun"):
+        scaffold_workspace(
+            root,
+            alias / "aliased-workspace",
+            name="new-skill",
+            origin="captured",
+            source=source,
+        )
     bare = tmp_path / "bare"
     bare.mkdir()
     with pytest.raises(RemekError, match="usable toolchain"):
@@ -256,6 +268,17 @@ def test_scaffold_is_absent_private_and_outside_source(tmp_path, monkeypatch):  
         accept_plan(root, workspace)
     provenance["sourceLabel"] = manifest["sourcePath"].split("/", 1)[1]
     write_input(provenance_path, provenance)
+    policy_path = workspace / "policy.json"
+    policy = load_document(policy_path, kind="skill-policy")
+    policy.update({"lifecycle": "ready", "exposure": "private-only"})
+    write_input(policy_path, policy)
+    with pytest.raises(
+        RemekError,
+        match=r"actual lifecycle/exposure is ready/private-only; expected draft/source-only",
+    ):
+        accept_plan(root, workspace)
+    policy.update({"lifecycle": "draft", "exposure": "source-only"})
+    write_input(policy_path, policy)
     release_parent = tmp_path / "release/subdirectory"
     release_parent.mkdir(parents=True)
     (release_parent.parent / "release-manifest.json").write_text("{}")

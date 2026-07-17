@@ -1,7 +1,7 @@
 {
   "cases": [
     {"prompt": "Initialize my private remek skills source and show the plan first.", "shouldTrigger": true},
-    {"prompt": "Capture this completed workflow as a governed remek skill.", "shouldTrigger": true},
+    {"prompt": "Create this skill with remek and install it afterward.", "shouldTrigger": true},
     {"prompt": "Revise this skill in my governed source without losing its base.", "shouldTrigger": true},
     {"prompt": "Record remek evidence and approval from these reviewed external results.", "shouldTrigger": true},
     {"prompt": "Prepare and verify this approved remek mirror before I push it.", "shouldTrigger": true},

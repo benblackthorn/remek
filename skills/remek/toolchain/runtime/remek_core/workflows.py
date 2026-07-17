@@ -444,6 +444,7 @@ def _init_state(toolchain: Tree, config: Config, name: str) -> Tree:
                 ).encode(),
                 0o644,
             ),
+            File(".gitignore", b".DS_Store\n__pycache__/\n.venv/\n", 0o644),
         ]
     )
     source_files = {item.path: item for item in toolchain.files}
@@ -509,6 +510,10 @@ def init_plan(
     for name in ("remek", "gate"):
         changes.append(
             write(root, root / name, files[name].data, f"install root {name} shim", mode=0o755)
+        )
+    if not exists(root / ".gitignore"):
+        changes.append(
+            write(root, root / ".gitignore", files[".gitignore"].data, "ignore local residue")
         )
     readme = readme_change(root, ())
     if readme is not None:
@@ -746,9 +751,14 @@ def scaffold_workspace(  # noqa: PLR0913
     )
     if loaded_toolchain is None:
         raise Error("scaffold.toolchain", "source has no usable toolchain")
+    if canonical != selected:
+        raise Error(
+            "scaffold.boundary",
+            f"actual workspace path resolves to {canonical}; expected the exact canonical path; "
+            f"repair: rerun with --workspace {canonical}",
+        )
     if (
-        canonical != selected
-        or exists(canonical)
+        exists(canonical)
         or paths_related(root, canonical)
         or paths_related(loaded_toolchain, canonical)
     ):
@@ -945,7 +955,10 @@ def accept_plan(root: Path, workspace: Path) -> Plan:  # noqa: PLR0912, PLR0915
             )
         if skill.policy.lifecycle != "draft" or skill.policy.exposure != "source-only":
             raise Error(
-                "accept.state", "new state invalid; source unchanged; use draft/source-only"
+                "accept.state",
+                f"actual lifecycle/exposure is {skill.policy.lifecycle}/{skill.policy.exposure}; "
+                "expected draft/source-only for a new skill; repair: set both values "
+                "in policy.json",
             )
         preserve_records = False
     else:

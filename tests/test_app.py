@@ -56,12 +56,15 @@ def test_init_plan_show_apply_through_cli(tmp_path, capsys, monkeypatch):
     assert plan.is_file() and not root.exists()
     capsys.readouterr()
     assert run(["plan", "show", str(plan), "--max-bytes", "512"]) == 0
-    assert "reconstructed exactly" in capsys.readouterr().out
+    rendered = capsys.readouterr().out
+    assert "exact plan reconstructed" in rendered
+    assert rendered.index("  tree ") < rendered.index("\nadd ")
     monkeypatch.setattr("remek_core.app.plan_diff", lambda _plan, *, max_bytes: "\\" * max_bytes)
     assert run(["--json", "plan", "show", str(plan)]) == 0
     json.loads(capsys.readouterr().out)
     assert run(["apply", str(plan)]) == 0
     assert (root / "remek.json").is_file()
+    assert ".DS_Store" in (root / ".gitignore").read_text()
     occupied = tmp_path / "occupied"
     (occupied / "skills/foreign").mkdir(parents=True)
     assert run(["init", str(occupied)]) == 2
@@ -155,7 +158,7 @@ def test_wrapper_accepts_installer_projection_and_metadata(tmp_path):
         if path.is_file():
             path.chmod(0o644)
     completed = execute_python(skill / "scripts/cli.py", "--version")
-    assert completed.returncode == 0 and completed.stdout == "remek 1.0.1\n"
+    assert completed.returncode == 0 and completed.stdout == "remek 1.0.2\n"
 
 
 def test_repair_reports_unrepairable_blockers(tmp_path, capsys):

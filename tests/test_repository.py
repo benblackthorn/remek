@@ -204,6 +204,14 @@ def test_audit_is_read_only_and_handles_empty(tmp_path):
     findings = audit_repository(skill)
     assert any(item.code == "audit.profile-unsupported" for item in findings)
     assert not any(item.code == "audit.open-invalid" for item in findings)
+    (skill / "SKILL.md").write_bytes(
+        render_skill(
+            {"name": "different", "description": "Valid instructions."},
+            "# Instructions\n",
+        )
+    )
+    mismatch = next(item for item in audit_repository(skill) if item.code == "audit.open-invalid")
+    assert "actual frontmatter name" in mismatch.message and "repair:" in mismatch.message
 
 
 def test_audit_reports_candidate_count_bound(tmp_path, monkeypatch):
@@ -424,8 +432,9 @@ def test_candidate_modes_project_and_empty_directories_refuse(tmp_path):
     authored(tmp_path, root)
     (root / "skills/deploy-safely/SKILL.md").chmod(0o600)
     (root / "skills" / "deploy-safely" / "empty").mkdir()
+    (root / "skills" / "deploy-safely" / ".DS_Store").write_bytes(b"finder")
     codes = {item.code for item in errors(root)}
-    assert "skill.empty-directory" in codes and "skill.mode" not in codes
+    assert {"skill.empty-directory", "skill.residue"} <= codes and "skill.mode" not in codes
 
 
 def test_candidate_token_budget_is_enforced(tmp_path):

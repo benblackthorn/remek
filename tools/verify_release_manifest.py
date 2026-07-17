@@ -35,13 +35,12 @@ def _self_test() -> None:
         "expectedCommitPaths": [],
     }
     with TemporaryDirectory() as directory:
-        root = Path(directory)
-        manifest = root / "release-manifest.json"
+        manifest = Path(directory) / "release-manifest.json"
         manifest.write_bytes(render_document("release-manifest", fields))
-        verify_materialized_release(root)
+        verify_materialized_release(manifest.parent)
         manifest.write_bytes(manifest.read_bytes() + b" ")
         try:
-            verify_materialized_release(root)
+            verify_materialized_release(manifest.parent)
         except RemekError:
             return
         raise RemekError("self-test accepted a malformed manifest")
@@ -49,10 +48,9 @@ def _self_test() -> None:
 
 def main(arguments: list[str]) -> int:
     try:
-        if len(arguments) != 1:
-            raise RemekError("expected one mirror path or --self-test")
-        _self_test() if arguments[0] == "--self-test" else verify_materialized_release(
-            Path(arguments[0]).absolute()
+        (argument,) = arguments
+        _self_test() if argument == "--self-test" else verify_materialized_release(
+            Path(argument).absolute()
         )
     except (OSError, RemekError, UnicodeError, ValueError):
         sys.stderr.write("invalid release mirror\n")

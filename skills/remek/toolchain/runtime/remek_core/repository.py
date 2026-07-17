@@ -756,6 +756,16 @@ def _payload_findings(  # noqa: PLR0912
     for item in tree.files:
         item_path = located(item.path)
         parts = item.path.split("/")
+        if ".DS_Store" in parts:
+            result.append(
+                _f(
+                    "skill.residue",
+                    "actual payload contains .DS_Store; expected skill files only; "
+                    "repair: remove it",
+                    item_path,
+                )
+            )
+            continue
         governance = (
             ".remek" in parts
             or item.path in {"remek.json", "release-manifest.json"}
@@ -1144,10 +1154,15 @@ def repository_findings(inspection: RepositoryInspection) -> tuple[Finding, ...]
                         )
                     )
             if not passing:
+                context = (
+                    "; expected while draft/source-only, required by release policy before release"
+                    if skill.policy.lifecycle == "draft" and skill.policy.exposure == "source-only"
+                    else "; required by release policy before release"
+                )
                 issues.append(
                     _f(
                         f"evidence.{kind}",
-                        f"current passing {kind} evidence is missing",
+                        f"current passing {kind} evidence is missing{context}",
                         f".remek/skills/{skill.name}/evidence",
                         "warning",
                     )
@@ -1525,15 +1540,28 @@ def audit_repository(root: Path) -> tuple[Finding, ...]:
                 )
             )
             continue
-        if (
-            fields.get("name") != path.name
-            or not valid_skill_name(fields.get("name"))
-            or not isinstance(fields.get("description"), str)
-            or not body.strip()
-        ):
-            issues.append(
-                _f("audit.open-invalid", "required Agent Skills fields are invalid", label)
+        name, message = fields.get("name"), ""
+        if name != path.name or not valid_skill_name(name):
+            repair = (
+                "run accept on the parent scaffold workspace"
+                if path.name == "candidate" and exists(path.parent / "workspace.json")
+                else "rename the folder to match the frontmatter name or correct that name"
             )
+            message = (
+                f"actual frontmatter name is {name!r} in folder {path.name!r}; expected equal "
+                f"lowercase hyphenated names; repair: {repair}"
+            )
+        elif not isinstance(fields.get("description"), str):
+            message = (
+                "actual description is missing or not text; expected non-empty text; repair: "
+                "set description in canonical SKILL.md frontmatter"
+            )
+        elif not body.strip():
+            message = (
+                "actual SKILL.md body is empty; expected reviewed instructions; repair: add them"
+            )
+        if message:
+            issues.append(_f("audit.open-invalid", message, label))
             continue
         metadata = fields.get("metadata", {})
         injected = (

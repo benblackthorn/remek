@@ -50,6 +50,11 @@ def test_plan_contains_identities_not_payload_bytes(tmp_path):
         "planDigest",
     }
     assert "toolchain-manifest" not in data.decode()
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    ignored = existing / ".gitignore"
+    ignored.write_text("owner rule\n")
+    assert ignored not in {change.path for change in init_plan(existing, TOOLCHAIN).changes}
 
 
 def test_plan_digest_tampering_refuses(tmp_path):

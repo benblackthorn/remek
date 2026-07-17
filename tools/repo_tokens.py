@@ -52,36 +52,35 @@ def main():
                 if BRAND.sub("remek", value) != value:
                     violations.append(f"{path}:{line}")
     except (OSError, RuntimeError, UnicodeError, subprocess.SubprocessError):
-        sys.stderr.write("repo-tokens: invalid tracked tree\n")
+        sys.stderr.write("repo-tokens: invalid tree\n")
         return 2
     if "skills/remek/SKILL.md" not in index or any(
         path.startswith("skills/") and not path.startswith("skills/remek/") for path in index
     ):
-        violations.append("invalid skill roots")
+        violations.append("skill roots")
     if any(
         set(Path(path).parts)
         & {"vendor", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
         or path.endswith((".pyc", ".pyo"))
         for path in index
     ):
-        violations.append("tracked vendor or cache")
+        violations.append("vendor/cache")
     for path, mode in MODES.items():
         executable = bool((root / path).stat().st_mode & 0o100)
         if index.get(path) != mode or executable != (mode == "100755"):
-            violations.append(f"invalid mode: {path}")
+            violations.append(f"mode: {path}")
     for name, source in {"gate": "toolchain/assets/gate", "remek": "scripts/cli.py"}.items():
         if (root / name).read_bytes() != (root / "skills/remek" / source).read_bytes():
-            violations.append(f"invalid root shim: {name}")
+            violations.append(f"shim: {name}")
     total, files = sum(counts.values()), len(index)
     if total > 100_000:
-        violations.append(f"total {total:,} exceeds 100,000 tokens")
+        violations.append(f"total={total}>100000")
     if files > 70:
-        violations.append(f"{files} files exceeds 70")
+        violations.append(f"files={files}>70")
     for name, limit in LIMITS.items():
         if counts[name] > limit:
-            violations.append(f"{name} {counts[name]:,} exceeds {limit:,}")
-    for violation in violations:
-        sys.stderr.write(f"repo-tokens: {violation}\n")
+            violations.append(f"{name}={counts[name]}>{limit}")
+    sys.stderr.writelines(f"repo-tokens: {value}\n" for value in violations)
     for name, value in counts.items():
         print(f"{name}: {value:,}")
     print(f"total: {total:,} tokens in {files} files")

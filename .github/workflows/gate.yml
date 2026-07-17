@@ -1,5 +1,3 @@
-name: gate
-
 on:
   push:
   pull_request:
@@ -8,7 +6,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: gate-${{ github.workflow }}-${{ github.ref }}
+  group: gate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,15 +23,16 @@ jobs:
       - run: |
           ./gate
           run() { uv run --no-project --python "${{ matrix.python }}" --with-requirements requirements-dev.txt "$@"; }
+          ruff() { uvx ruff@0.15.20 "$@"; }
+          mypy() { uvx mypy@2.1.0 --strict "$@"; }
           run -m pytest tests/ -q
           run -m pytest tests/ --collect-only -q
-          uvx ruff@0.15.20 check skills tests tools gate remek
-          uvx ruff@0.15.20 format --check skills tests tools
-          uvx mypy@2.1.0 --strict skills/remek/scripts/cli.py
-          uvx mypy@2.1.0 --strict skills/remek/toolchain/scripts/cli.py skills/remek/toolchain/runtime
-          uvx mypy@2.1.0 --strict tools/verify_release_manifest.py
+          ruff check skills tests tools gate remek
+          ruff format --check skills tests tools
+          mypy skills/remek/scripts/cli.py tools/verify_release_manifest.py
+          mypy skills/remek/toolchain/scripts/cli.py skills/remek/toolchain/runtime
           python3 tools/verify_release_manifest.py --self-test
-          uv run --no-project --python "3.13" --with tiktoken==0.11.0 python tools/repo_tokens.py
+          uv run --no-project -p3.13 --with tiktoken==0.11.0 tools/repo_tokens.py
           git diff --check
       - if: runner.os == 'Linux' && matrix.python == '3.11'
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
