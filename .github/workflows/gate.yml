@@ -32,7 +32,7 @@ jobs:
           mypy skills/remek/scripts/cli.py tools/verify_release_manifest.py
           mypy skills/remek/toolchain/scripts/cli.py skills/remek/toolchain/runtime
           python3 tools/verify_release_manifest.py --self-test
-          run --with tiktoken==0.11.0 python tools/repo_tokens.py
+          uv run --no-project -p3.13 --with tiktoken==0.11.0 tools/repo_tokens.py
           git diff --check
       - if: runner.os == 'Linux' && matrix.python == '3.11'
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7

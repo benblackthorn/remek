@@ -74,14 +74,13 @@ def main():
             violations.append(f"shim: {name}")
     total, files = sum(counts.values()), len(index)
     if total > 100_000:
-        violations.append(f"total: {total:,}/100,000")
+        violations.append(f"total={total}>100000")
     if files > 70:
-        violations.append(f"files: {files}/70")
+        violations.append(f"files={files}>70")
     for name, limit in LIMITS.items():
         if counts[name] > limit:
-            violations.append(f"{name}: {counts[name]:,}/{limit:,}")
-    for violation in violations:
-        sys.stderr.write(f"repo-tokens: {violation}\n")
+            violations.append(f"{name}={counts[name]}>{limit}")
+    sys.stderr.writelines(f"repo-tokens: {value}\n" for value in violations)
     for name, value in counts.items():
         print(f"{name}: {value:,}")
     print(f"total: {total:,} tokens in {files} files")
