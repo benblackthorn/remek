@@ -2,34 +2,35 @@
 
 **Your skills are an asset. Govern them like one.**
 
-remek is the governed source and release layer for [Agent Skills](https://agentskills.io/). It starts from completed work, a design, or a reviewed import; makes changes reviewable; binds external observations to exact bytes; and prepares approved payloads. Agents author. Installers place copies. remek governs the source.
+remek is the governed source and release layer for [Agent Skills](https://agentskills.io/). It makes completed work reviewable, binds observations to exact bytes, and prepares approved payloads.
 
-1. Keep a reviewed private skill library.
-2. Share approved skills privately.
-3. Release selected skills without private material.
+Keep a reviewed private library and release selected skills without private material.
 
 ## Quick start
 
-> Install remek for me with `gh skill install benblackthorn/remek remek --scope user`. Let me choose the agent when GitHub CLI asks.
+> Install remek at user scope with `gh skill` and let me choose the agent interactively.
 
-[`gh skill`](https://cli.github.com/manual/gh_skill) requires GitHub CLI 2.90+ and is in public preview. It selects the agent interactively; the source must be public or accessible to your account.
+[`gh skill`](https://cli.github.com/manual/gh_skill) needs GitHub CLI 2.90+.
 
 ```bash
 gh skill install benblackthorn/remek remek --scope user
 npx skills add benblackthorn/remek -g
 ```
 
-remek has no telemetry. [GitHub CLI](https://cli.github.com/telemetry) and [`npx skills`](https://github.com/vercel-labs/skills/blob/main/README.md#telemetry) document theirs and opt-outs. `npx skills` has no complete private-repository contract, so private distributions default to `gh`.
+remek has no telemetry. [GitHub CLI](https://cli.github.com/telemetry) and [`npx skills`](https://github.com/vercel-labs/skills/blob/main/README.md#telemetry) document theirs and opt-outs. Private distributions default to `gh`; `npx skills` has no complete private-repository contract.
 
-> Initialize a governed private skills source in an existing private Git repository at an absolute path I confirm. Show and explain the plan before applying it.
+> Set up my governed skills source. Discover my conventions; if none exist, ask whether skills may become public, then confirm the repository name and path.
+
+Internal-only: private `agent-skills`. Selective release: private `skills-home`
+plus public `agent-skills`. Reuse existing setups.
 
 > Capture this as a skill with remek.
 
-Your agent writes the confirmed procedure to one file. remek captures that file—not the chat or neighboring files—and shows an accept plan. Installation creates no governed source.
+Your agent authors one confirmed file; remek captures it and shows an accept plan.
 
 ## Review the exact change before it lands
 
-These lines are from the disposable validation run; paths are shortened:
+Disposable proof, with shortened paths:
 
 ```console
 $ ./remek scaffold --name backup-safely …
@@ -38,10 +39,10 @@ $ # Agent completed candidate, provenance, policy, and both case sets.
 $ ./remek accept --workspace … --output …/accept.json
 accept: exact plan saved; review it with plan show before apply
 $ ./remek plan show …/accept.json
-plan show: plan reconstructed exactly; content diff follows
+plan show: exact plan reconstructed; 4 change(s) and content diff follow
 ```
 
-Nothing has landed yet. If a bound byte changes, the reviewed plan refuses:
+Nothing has landed; bound-byte drift refuses:
 
 ```console
 $ ./remek apply …/accept.json
@@ -49,36 +50,41 @@ apply: plan differs at plan.bindings.candidate; nothing applied; recreate and re
   ERROR plan.stale: plan differs at plan.bindings.candidate; nothing applied; recreate and review
 ```
 
-Only `scaffold` mutates directly, creating an owner-only workspace outside protected trees and Git checkouts. Durable changes require a reviewed plan and `apply`.
+Only `scaffold` mutates directly, creating an owner-only workspace outside Git.
+Durable changes need a reviewed plan and `apply`.
 
 ## Skill lifecycle
 
-1. **Author.** Open an owner-only workspace from completed work, a design, or a reviewed import.
-2. **Accept.** Save exact intent; inspect its reconstructed diff before `apply`.
-3. **Record evidence.** Bind externally run observations; remek runs none of them.
-4. **Approve.** Bind the review and release context. Approval grants no access.
-5. **Release.** Prepare the selected payload and manifest; verify the commit before a separate push.
+**Author → accept → record evidence → approve → release.** remek governs from
+reviewed input through verified payload; adjacent owners do the work it does not.
 
-`check` and `check --release DIST` are offline. Release preparation and verification authenticate the GitHub target. Receipts bind candidates, cases, profiles, trial policy, and private report digests; they cannot prove an evaluator or reviewer was honest.
+`check` is offline. Release authenticates its target. Receipts bind bytes, cases,
+profiles, trials, and private report digests—not evaluator honesty.
 
 ## Boundaries
 
-Agents author. remek governs and prepares. Git records and transports. Installers place copies. External harnesses evaluate.
+remek is not a skill authoring skill. Your agent uses its built-in or preferred workflow, then remek governs the resulting bytes. Git transports; installers place copies; external harnesses evaluate.
 
-remek never calls models, runs candidate scripts, creates repositories, commits, pushes, tags, publishes, changes visibility, controls access, or updates installed copies. Private sources and release mirrors have separate repositories and histories.
+Exposure and installation are independent. After acceptance, your agent should
+complete or offer user- or project-scope installation.
 
-Requirements: Python 3.11+, macOS or native Linux, verified POSIX local storage, Git, and GitHub CLI for verified targets. Payload is UTF-8 text; binary assets, Windows, WSL, and network filesystems are unsupported. The wrapper is trust-on-first-use; see the [threat model](docs/threat-model.md).
+remek never calls models or candidate scripts, creates repositories, commits, pushes, tags, publishes, changes visibility, controls access, or updates installed copies. Sources and release mirrors have separate histories.
+
+Requires Python 3.11+, macOS or native Linux, POSIX local storage, Git, and GitHub CLI for verified targets. Payload is UTF-8 text; binary assets, Windows, WSL, and network filesystems are unsupported. The wrapper is trust-on-first-use; see the [threat model](docs/threat-model.md).
 
 ## Documentation and contributing
 
-Read the installed [workflow reference](skills/remek/references/workflows.md), [contracts](docs/contracts.md), [design](docs/design.md), and [threat model](docs/threat-model.md). Cloning is the contributor lane; [AGENTS.md](AGENTS.md) defines its scope, ceilings, and definition of done. See [CONTRIBUTING.md](.github/CONTRIBUTING.md) and [SECURITY.md](.github/SECURITY.md).
+Use the installed [workflow reference](skills/remek/references/workflows.md).
+Contributors: [AGENTS.md](AGENTS.md), [design](docs/design.md),
+[contracts](docs/contracts.md), [threat model](docs/threat-model.md),
+[contributing](.github/CONTRIBUTING.md), and [security](.github/SECURITY.md).
 
 ## Skills
 
 <!-- remek-skills:start -->
 | Skill | Description |
 | --- | --- |
-| `remek` | Use when a request names remek or asks to initialize or operate a governed Agent Skill source or approved mirror: capture, import, or revise source bytes; audit; record evidence or approval; or prepare or verify release. It governs finished skill bytes and external evaluation results. Do not use it to author or improve skills, run evaluations, install or update consumer copies, operate Git, publish, or change visibility. |
+| `remek` | Use when a request names remek or asks to govern, audit, evaluate, approve, distribute, or verify release of owned Agent Skill bytes or mirrors. remek governs completed bytes and external results; authoring, Git, installation, and provider work use compatible capabilities. |
 <!-- remek-skills:end -->
 
 remek is [MIT licensed](LICENSE) and maintained best-effort, with no response-time commitment.

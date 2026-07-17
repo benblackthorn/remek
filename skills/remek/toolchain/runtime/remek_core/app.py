@@ -71,7 +71,7 @@ def _parser() -> _Parser:  # noqa: PLR0915
     )
     parser.add_argument("--root", type=Path, help="governed source root; default current directory")
     parser.add_argument("--json", action="store_true", help="emit one canonical JSON result")
-    parser.add_argument("--version", action="version", version="remek 1.0.1")
+    parser.add_argument("--version", action="version", version="remek 1.0.2")
     commands = parser.add_subparsers(dest="command", required=True)
 
     def command(name: str, help_text: str) -> argparse.ArgumentParser:
@@ -413,7 +413,7 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
         return Result(
             "plan show",
             "ok",
-            "plan reconstructed exactly; content diff follows",
+            f"exact plan reconstructed; {len(plan.changes)} change(s) and content diff follow",
             changes=plan.project(),
             data={"root": str(plan.root), "planDigest": digest, "diff": diff},
         )
@@ -469,14 +469,14 @@ def _render(result: Result, *, json_mode: bool) -> str:
         template = result.data.get("template")
         if isinstance(template, dict):
             lines.append(json.dumps(template, ensure_ascii=True, sort_keys=True, indent=2))
-        diff = result.data.get("diff")
-        if isinstance(diff, str):
-            lines.extend(["", diff.rstrip("\n")])
         for change in result.changes:
             lines.append(
                 f"  {safe_text(change.action)} {safe_text(change.path)}: "
                 f"{safe_text(change.before)} -> {safe_text(change.after)}"
             )
+        diff = result.data.get("diff")
+        if isinstance(diff, str):
+            lines.extend(["", diff.rstrip("\n")])
         for finding in result.findings:
             path = f" {safe_text(finding.path)}" if finding.path else ""
             lines.append(

@@ -15,6 +15,50 @@ python3 -I -S -B scripts/cli.py apply P
 
 Later examples use reviewed source `./remek`.
 
+## Whole-request workflow
+
+Before first initialization, quietly inspect instructions, memory, project and
+skill roots, Git, and read-only GitHub context. Reuse established setup.
+Otherwise learn whether a skill repository exists and any skill may become
+public, then recommend:
+
+- internal-only: private `agent-skills` under the established project root;
+- selective release: private `skills-home` plus a separate `agent-skills`
+  release repository, public only when authorized.
+
+Explain the split; confirm names and absolute paths. Creation, remotes, and
+visibility need separate authorization. Reuse it unless project-local.
+
+### Authoring handoff
+
+Lifecycle: read-only discovery → authoring selection → completed
+candidate/design/import → remek scaffold/accept → optional Git/install → summary.
+
+Quietly inspect the active host and native capabilities; installed descriptions
+covering Agent Skill creation, improvement, or evaluation; project, user, and
+agent instructions and known preferences; repository conventions and prior
+workflows; and compatibility with host tools. Match capability, not a name such
+as `skill-creator`.
+
+- Known compatible preference: use it. One compatible choice: use it silently.
+- Native plus another credible installed choice, with no preference: ask once.
+  Recommend native unless the task, repository history, or documented workflow
+  justifies the alternative. State only the material difference, never a catalog.
+- Exclude incompatible choices; mention them only if material. With none, use
+  the normal workflow and continue.
+- Remember via existing memory or instructions only, never remek. Never silently
+  install an authoring skill or mix workflows.
+
+Finish one candidate, design, or reviewed import, then hand it to remek.
+Authoring may design or run external evaluations; its output is not trusted
+automatically. remek binds reviewed results to exact bytes. After acceptance,
+continue requested Git or installation work through its owner.
+
+Lead with the outcome, hide internal routing and routine findings, and show
+exact plans and refusals. End with lifecycle/exposure, Git, consumer
+installation/synchronization, evidence freshness, release readiness, and the
+next action. `source-only` is exposure, not installation.
+
 ## Private source
 
 ```bash
@@ -36,7 +80,8 @@ drift leaves source unchanged; scaffold again.
 
 ## Quality and distribution
 
-`check` reports quality. Candidate, case, profile, or catalog changes stale
+`check` reports quality. Missing evidence is expected for a new
+`draft`/`source-only` skill; candidate, case, profile, or catalog changes stale
 evidence. Source and mirror repositories require committed `HEAD`s.
 
 `/abs/distribution.json` and `/abs/disclosure.json` have these exact shapes:

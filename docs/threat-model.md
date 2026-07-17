@@ -2,59 +2,43 @@
 
 ## Trusted inputs
 
-Trust covers the loaded bundle, interpreter, OS, explicit intent, selected roots,
-and external ancestors. First execution is trust-on-first-use. Installer metadata
-is outside identity. The wrapper pins manifest and entrypoint by SHA-256; the
-entrypoint validates the complete toolchain twice before import.
-
-Repository and workflow inputs, Git state, remotes, and subprocess output are
-hostile. The runtime never imports or executes candidate content.
+Trust covers the loaded bundle, interpreter, OS, intent, roots, and ancestors.
+First use is trust-on-first-use; installer metadata is outside identity. The
+pinned entrypoint inventories twice before import. Repository inputs, Git,
+remotes, and subprocess output are hostile; candidate content never executes.
 
 ## Defended boundaries
 
-- Bounded reads reject links, special files, unstable identities, bytecode, and
-  excess depth, entries, files, or bytes.
-- Authored paths must be portable. Selected absolute paths are canonicalized against opened roots and may not overlap protected inputs or destinations.
-- Plans contain identities, not payload bytes. Reconstruction must exactly match the reviewed plan before diff or apply.
-- Mutations stage before replacement, use descriptor-relative no-follow
-  operations, verify destinations, roll back cooperative failures, preserve
-  foreign race winners, and name residue.
-- Checks screen credential shapes without matched text. Disclosure rules cover
-  owner-defined private material; credentials cannot be excepted.
-- Evidence binds candidate, cases, catalog, evaluator profile, trials, and a
-  private report digest. Input changes stale proof; receipts do not prove honesty.
-- Release binds readiness, raw HEAD identities, branch, credential-free remotes,
-  and authenticated exact target visibility. Hostile Git features and overrides
-  refuse; [contracts](contracts.md) lists the exact checks.
-- Mirrors receive only open payload and `release-manifest.json`; governance and
-  retained sources stay private.
-- Public manifests retain only digests of private source-branch, distribution, target-verification, and remote values.
-- `release verify` rechecks the clean one-commit mirror state and current target immediately before the separately authorized push.
+- Bounded reads reject unsafe objects, unstable identities, bytecode, excess
+  depth or size, and overlap with protected paths.
+- Identity-only plans must reconstruct exactly before diff or apply.
+- No-follow mutations stage and verify before replacement, roll back cooperative
+  failures, preserve foreign race winners, and name residue.
+- Credential checks never show matched text; credentials cannot be excepted.
+- Evidence binds bytes, cases, profile, trials, and private report digest. Input
+  changes stale proof; receipts do not prove honesty.
+- Release binds readiness, raw HEAD, branch, clean remotes, and authenticated
+  target visibility; hostile Git features refuse.
+- Mirrors receive payload and manifest only; governance stays private and private
+  context appears by digest.
+- `release verify` rechecks the clean commit and target before a separate push.
 
 ## Subprocess and network boundary
 
-Ordinary workflows are offline; release uses installed `git` for state and `gh
-repo view` for target identity and visibility. Git execution is isolated and
-bounded; unsafe repository features fail closed. remek never wraps install,
-commit, push, tag, publish, or visibility.
+Ordinary workflows are offline. Release uses bounded `git` and `gh repo view` for
+state and target identity. remek never wraps install, commit, push, tag, publish,
+or visibility.
 
 ## Honest limitations
 
-Guarantees apply only through remek. People, agents, hooks, or other processes
-can bypass it; branch protection and forge review remain separate.
+People, agents, hooks, and processes can bypass remek; forge controls are separate.
 
-Transactions cover cooperative local POSIX filesystems, not hostile writers or
-ancestors, compromised execution, process or machine failure, power loss,
-network filesystems, Windows, or history outside retained lineage. There is no
-journal; post-replacement failure may leave named residue and exit 3.
+Transactions assume cooperative local POSIX storage, not hostile writers,
+compromised execution, failure, power loss, network storage, Windows, or
+unretained history. No journal exists; late failure may leave residue and exit 3.
+Paths are case-sensitive; trusted roots need canonical casing elsewhere.
 
-Path overlap is case-sensitive POSIX text. On case-insensitive filesystems, trusted selected roots must use canonical casing.
-
-Screening can be wrong, and visibility can change after verification. Public
-history, forks, tags, releases, caches, and clones retain bytes; use separate
-history rather than converting a private mirror.
-
-The manifest is not a signature. It exposes the lineage commit and hashes other
-private context. Replacing the trusted bundle is outside the model. Authorized
-writers can fabricate evidence; audit validates structure, not independence,
+Screening can err; public history and copies retain bytes, so use separate
+history. Manifests are not signatures. Replacing the trusted bundle is out of
+scope. Writers can fabricate proof; audit checks structure, not independence,
 grader quality, or provenance.

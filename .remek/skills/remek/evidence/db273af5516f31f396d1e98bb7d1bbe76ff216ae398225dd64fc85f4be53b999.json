@@ -1,12 +1,12 @@
 {
   "artifacts": [
     {
-      "digest": "1b6063e29cdfe200e2525a2ebc57ab5feaa5a9abf67cc402088debf0d2730a05",
+      "digest": "f4eef466df0287d0ee05a3f60b0ae5b4559c5a7312a39695550eca4f9cc4788d",
       "label": "evaluation-report"
     }
   ],
-  "candidate": "d1aa636202a9910ef96667740d3bcf8e063aaf0b95f698b986ad32d9e56d3b80",
-  "caseSetDigest": "a0876043eb2c093d3d9b986bda775d183d178b9ee353e2c55f1f8a71bc36f12c",
+  "candidate": "d30b1a7a8838ae06352e6c6049c5d081b90eff59b1201b58c177857195c467db",
+  "caseSetDigest": "d2eb8c1b887382b4ffb22f386ac5098262fa8b5412c24222740e6bb4548af159",
   "distribution": null,
   "evidenceKind": "routing",
   "kind": "eval-receipt",
@@ -15,9 +15,9 @@
     "kind": "manual-host",
     "minimumPassCount": 3,
     "name": "codex-cli",
-    "runConfigDigest": "af1ece1930c3293a2f2ff7e7977a882aa477158d8080a7af3e4893dc49717d52",
+    "runConfigDigest": "419fcf9fc0e5cbf76d63e8c3b51fab0ae08c39213bc86123f955d1b4be0a3b05",
     "trialCount": 3,
-    "version": "0.144.5 / GPT-5"
+    "version": "0.144.5"
   },
   "results": [
     {
@@ -69,7 +69,7 @@
       "passCount": 3
     }
   ],
-  "routingCatalogDigest": "1db026887599a1dc3fad63ee039a70df2deaae824a65b23a15f341cac5a276a0",
+  "routingCatalogDigest": "60f92e1f521c19ddbb80519c4fe24eccc139375dc82dc3a32e3bce902dd3d32c",
   "schema": "remek.1",
   "skill": "remek"
 }

@@ -2,7 +2,9 @@
 
 ## Outcome and owners
 
-remek governs Agent Skill sources and releases: structure, authoring intake, checks, cases, evidence, approvals, release projections, and pre-push verification. Fresh external sessions evaluate; Git owns history/transport; hosts and installers own discovery/installation; agents author in disposable workspaces. remek never calls models, executes skills, commits, pushes, tags, publishes, changes visibility, or updates copies.
+remek governs Agent Skill intake, proof, approval, projection, and verification.
+Agents author and evaluate, Git transports, and installers place copies. remek's
+boundary does not end the authorized task.
 
 Semantic ownership inside the runtime is narrow:
 
@@ -20,39 +22,27 @@ Semantic ownership inside the runtime is narrow:
 
 ## Ratified state model
 
-Skills move among `draft`, `ready`, and `retired`, with `source-only`,
-`private-only`, or `public-eligible` exposure. Distributions are exact private or
-public allowlists. Candidate changes force draft, cannot raise exposure, and
-stale evidence and approvals; promotion requires identical bytes and a new
-reason. Removal refuses while selected.
-
-Catalog, distribution-context, and release-set identities make relevant changes
-stale. Receipts bind exact candidates, cases, evaluator profiles, results, and a
-private report digest. Failed records persist but do not satisfy readiness. See
-[contracts](contracts.md) for exact fields.
+Lifecycle (`draft`, `ready`, `retired`) and exposure (`source-only`,
+`private-only`, `public-eligible`) are independent; distributions are allowlists.
+Candidate changes force draft, cannot raise exposure, and stale proof. Promotion
+keeps bytes; selected skills cannot be removed. Failed proof persists without
+satisfying readiness.
 
 ## Mutation protocol
 
-Mutations save pure-identity plans without payloads or diffs. `plan show`
-reconstructs exact intent before rendering a bounded diff; `apply` requires
-equality. Only `scaffold` directly creates one absent mode-0700 workspace.
-Transactions hold no-follow POSIX boundaries, stage all objects before public
-replacement, preserve foreign race winners, and name residue. The guarantee is
-process-lifetime only; there is no journal or power-loss claim.
+Identity-only plans reconstruct before `apply`. Only `scaffold` directly creates
+a mode-0700 workspace. No-follow transactions preserve foreign races and name
+residue; there is no journal or power-loss claim.
 
 ## Release boundary
 
-Targets bind GitHub identity, remote, branch, and exact public or private
-visibility. Audience is history-immutable; delivery is not access control.
-Release binds committed source and payload bytes to the authenticated target;
-`release verify` rechecks one clean release commit before a separate push.
-[Contracts](contracts.md) and the [threat model](threat-model.md) define the
-exact refusals and limitations.
-
-Installer metadata is outside toolchain identity. The trust-on-first-use wrapper
-pins the manifest and verifier; the verifier inventories the complete tree twice
-before import.
+Targets bind GitHub identity, branch, visibility, and committed bytes. Audience
+is history-immutable; delivery is not access. Verification rechecks before push.
+Installer metadata is outside identity; the pinned entrypoint inventories twice.
 
 ## Constraints
 
-The shipped runtime is Python 3.11+, POSIX-only, standard-library-only, offline except read-only `git` state queries and `gh` target verification during release. One `remek.1` schema family and the fixed repository ceilings in `AGENTS.md` keep the product reviewable. New commands, persisted kinds, dependencies, platforms, adapters, or compatibility paths require owner approval.
+The Python 3.11+ standard-library runtime is POSIX-only and offline except
+read-only Git and target queries. One `remek.1` family and fixed ceilings keep it
+reviewable. New surface needs owner approval. See [contracts](contracts.md) and
+[threat model](threat-model.md).

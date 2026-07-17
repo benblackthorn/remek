@@ -2,11 +2,13 @@
   "cases": [
     {
       "expectations": [
-        "The plan binds exact inputs and changes no protected state.",
-        "Scaffold creates only an owner-private workspace outside protected trees."
+        "Quietly inspect host capabilities, instructions, preferences, prior workflow, and compatibility; do not expose findings.",
+        "Use one clear choice silently; with several compatible choices and no preference, ask once, recommend host-native absent a concrete reason, and state only the material difference.",
+        "Use one authoring workflow, hand completed bytes, design, or reviewed import to remek, and do not trust its evaluation output automatically.",
+        "Continue requested Git or installation work with its owner, then summarize the lifecycle."
       ],
       "id": "authoring",
-      "prompt": "Initialize a source and scaffold from completed owned work."
+      "prompt": "Create this skill from my rough idea with remek, then install it and commit it."
     },
     {
       "expectations": [

@@ -7,7 +7,7 @@
     },
     {
       "id": "capture",
-      "prompt": "Capture this completed workflow as a governed remek skill.",
+      "prompt": "Create this skill with remek and install it afterward.",
       "shouldActivate": true
     },
     {

@@ -1,15 +1,11 @@
-## What
-
-
-## Why
+## Change and reason
 
 
 ## Surface delta
 
-- none / net-negative / net-positive:
-- evidence, additions, and deletions:
+- additions and deletions:
 - before/after tokens, files, tests, commands, kinds, and dependencies:
-- owner approval, if required:
+- required owner approval:
 
 
 ## Verification

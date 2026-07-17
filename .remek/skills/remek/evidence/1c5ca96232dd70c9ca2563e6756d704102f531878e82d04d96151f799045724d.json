@@ -1,0 +1,59 @@
+{
+  "artifacts": [
+    {
+      "digest": "f4eef466df0287d0ee05a3f60b0ae5b4559c5a7312a39695550eca4f9cc4788d",
+      "label": "evaluation-report"
+    }
+  ],
+  "candidate": "d30b1a7a8838ae06352e6c6049c5d081b90eff59b1201b58c177857195c467db",
+  "caseSetDigest": "d6ace21e172ba086628eaa0f841b938a15fc3d3826b6a4dde07bc58c6ee7e9ff",
+  "distribution": null,
+  "evidenceKind": "behavior",
+  "kind": "eval-receipt",
+  "profile": {
+    "claim": "regression",
+    "kind": "manual-host",
+    "minimumPassCount": 3,
+    "name": "codex-cli",
+    "runConfigDigest": "419fcf9fc0e5cbf76d63e8c3b51fab0ae08c39213bc86123f955d1b4be0a3b05",
+    "trialCount": 3,
+    "version": "0.144.5"
+  },
+  "results": [
+    {
+      "caseId": "authoring",
+      "passCount": 3
+    },
+    {
+      "caseId": "accept",
+      "passCount": 3
+    },
+    {
+      "caseId": "evidence",
+      "passCount": 3
+    },
+    {
+      "caseId": "approval",
+      "passCount": 3
+    },
+    {
+      "caseId": "release",
+      "passCount": 3
+    },
+    {
+      "caseId": "release-refusal",
+      "passCount": 3
+    },
+    {
+      "caseId": "audit",
+      "passCount": 3
+    },
+    {
+      "caseId": "repair",
+      "passCount": 3
+    }
+  ],
+  "routingCatalogDigest": null,
+  "schema": "remek.1",
+  "skill": "remek"
+}

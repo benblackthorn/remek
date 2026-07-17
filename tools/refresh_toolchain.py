@@ -16,7 +16,8 @@ def _pin(source: str, name: str, digest: str) -> str:
 
 
 def main() -> None:
-    skill, toolchain = ROOT / "skills/remek", ROOT / "skills/remek/toolchain"
+    skill = ROOT / "skills/remek"
+    toolchain = skill / "toolchain"
     entrypoint = toolchain / "scripts/cli.py"
     prefix, marker, _ = entrypoint.read_text().partition("\ntry:\n")
     if not marker:
@@ -26,9 +27,10 @@ def main() -> None:
     manifest = namespace["_manifest"](toolchain)
     (toolchain / "manifest.json").write_bytes(manifest)
     wrapper = skill / "scripts/cli.py"
-    source = _pin(wrapper.read_text(), "manifest.json", hashlib.sha256(manifest).hexdigest())
     data = _pin(
-        source, "scripts/cli.py", hashlib.sha256(entrypoint.read_bytes()).hexdigest()
+        _pin(wrapper.read_text(), "manifest.json", hashlib.sha256(manifest).hexdigest()),
+        "scripts/cli.py",
+        hashlib.sha256(entrypoint.read_bytes()).hexdigest(),
     ).encode()
     wrapper.write_bytes(data)
     (ROOT / "remek").write_bytes(data)
