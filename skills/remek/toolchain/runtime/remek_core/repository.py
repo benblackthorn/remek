@@ -31,9 +31,11 @@ from .evaluation import (
     profile_key,
     receipt_status,
     routing_catalog_digest,
+    validate_evidence_intrinsic,
 )
 from .filesystem import (
     Tree,
+    _directory_members,
     checked_path,
     checked_root as checked,
     directory_members,
@@ -353,7 +355,11 @@ def new_config(
         valid_uuid = isinstance(value, str) and str(uuid.UUID(value)) == value
     except ValueError:
         valid_uuid = False
-    if not valid_uuid or skills_root not in {"skills", ".agents/skills"}:
+    if (
+        not valid_uuid
+        or not isinstance(skills_root, str)
+        or skills_root not in ("skills", ".agents/skills")
+    ):
         raise Error("repo.config", "invalid repository identity or skills root")
     if (
         tuple(sorted(set(governed_skills))) != governed_skills
@@ -380,7 +386,13 @@ def load_config(root: Path) -> Config:
 def parse_policy(document: JSONObject, skill: str) -> SkillPolicy:
     _keys(document, {"schema", "kind", "skill", "lifecycle", "exposure", "stateReason"}, "policy")
     lifecycle, exposure = document.get("lifecycle"), document.get("exposure")
-    if document.get("skill") != skill or lifecycle not in _LIFECYCLES or exposure not in _EXPOSURES:
+    if (
+        document.get("skill") != skill
+        or not isinstance(lifecycle, str)
+        or lifecycle not in _LIFECYCLES
+        or not isinstance(exposure, str)
+        or exposure not in _EXPOSURES
+    ):
         raise Error("policy.state", "invalid skill policy")
     return SkillPolicy(
         skill,
@@ -396,7 +408,8 @@ def parse_provenance(document: JSONObject, skill: str) -> Provenance:
     label = _text(document.get("sourceLabel"), "source label", 128)
     if (
         document.get("skill") != skill
-        or origin not in {"captured", "designed", "imported"}
+        or not isinstance(origin, str)
+        or origin not in ("captured", "designed", "imported")
         or not _digest(digest)
     ):
         raise Error("provenance.identity", "invalid provenance identity")
@@ -423,39 +436,7 @@ def parse_provenance(document: JSONObject, skill: str) -> Provenance:
     return Provenance(*values)
 
 
-def parse_distribution(document: JSONObject) -> Distribution:  # noqa: PLR0912
-    keys = {
-        "schema",
-        "kind",
-        "id",
-        "audience",
-        "skills",
-        "target",
-        "delivery",
-        "evidencePolicy",
-        "privateDisclosure",
-    }
-    _keys(document, keys, "distribution")
-    identifier, audience, skills = (
-        document.get("id"),
-        document.get("audience"),
-        document.get("skills"),
-    )
-    if (
-        identifier == "verify"
-        or not valid_skill_name(identifier)
-        or audience not in {"private", "public"}
-    ):
-        raise Error("distribution.identity", "invalid distribution identity")
-    if (
-        not isinstance(skills, list)
-        or len(skills) > MAX_SKILLS
-        or not all(valid_skill_name(item) for item in skills)
-        or skills != sorted(set(cast(list[str], skills)))
-    ):
-        raise Error("distribution.skills", "skills must be sorted and unique")
-    skill_names = cast(list[str], skills)
-    target = document.get("target")
+def _distribution_target(value: object, audience: str) -> JSONObject:
     target_keys = {
         "provider",
         "hostname",
@@ -465,11 +446,12 @@ def parse_distribution(document: JSONObject) -> Distribution:  # noqa: PLR0912
         "expectedVisibility",
     }
     if (
-        not isinstance(target, dict)
-        or set(target) != target_keys
-        or target.get("provider") != "github"
+        not isinstance(value, dict)
+        or set(value) != target_keys
+        or value.get("provider") != "github"
     ):
         raise Error("distribution.target", "invalid GitHub target")
+    target = cast(JSONObject, value)
     if not all(
         isinstance(target.get(key), str) and target.get(key) for key in target_keys - {"provider"}
     ):
@@ -505,17 +487,54 @@ def parse_distribution(document: JSONObject) -> Distribution:  # noqa: PLR0912
         or branch == "@"
         or branch.startswith(("-", ".", "/"))
         or branch.endswith((".", "/"))
-        or any(value in branch for value in ("..", "//", "@{"))
+        or any(item in branch for item in ("..", "//", "@{"))
         or any(component.startswith(".") or component.endswith(".lock") for component in components)
-        or any(ord(value) < 33 or ord(value) == 127 or value in "~^:?*[\\" for value in branch)
+        or any(ord(item) < 33 or ord(item) == 127 or item in "~^:?*[\\" for item in branch)
     ):
         raise Error("distribution.target", "invalid target branch")
+    return target
+
+
+def parse_distribution(document: JSONObject) -> Distribution:
+    keys = {
+        "schema",
+        "kind",
+        "id",
+        "audience",
+        "skills",
+        "target",
+        "delivery",
+        "evidencePolicy",
+        "privateDisclosure",
+    }
+    _keys(document, keys, "distribution")
+    identifier, audience, skills = (
+        document.get("id"),
+        document.get("audience"),
+        document.get("skills"),
+    )
+    if (
+        identifier == "verify"
+        or not valid_skill_name(identifier)
+        or not isinstance(audience, str)
+        or audience not in ("private", "public")
+    ):
+        raise Error("distribution.identity", "invalid distribution identity")
+    if (
+        not isinstance(skills, list)
+        or len(skills) > MAX_SKILLS
+        or not all(valid_skill_name(item) for item in skills)
+        or skills != sorted(set(cast(list[str], skills)))
+    ):
+        raise Error("distribution.skills", "skills must be sorted and unique")
+    skill_names = cast(list[str], skills)
+    target = _distribution_target(document.get("target"), audience)
     delivery = document.get("delivery")
     if (
         not isinstance(delivery, list)
         or not delivery
-        or any(item not in {"gh", "npx"} for item in delivery)
-        or len(delivery) != len(set(delivery))
+        or any(not isinstance(item, str) or item not in ("gh", "npx") for item in delivery)
+        or len(delivery) != len(set(cast(list[str], delivery)))
     ):
         raise Error("distribution.delivery", "invalid delivery policy")
     evidence = document.get("evidencePolicy")
@@ -541,7 +560,11 @@ def parse_distribution(document: JSONObject) -> Distribution:  # noqa: PLR0912
             raise Error("distribution.evidence", "duplicate evaluator profile")
         parsed.append(tuple(sorted(profiles, key=profile_key)))
     private = document.get("privateDisclosure")
-    if private not in {"allow", "block"} or (audience == "public" and private != "block"):
+    if (
+        not isinstance(private, str)
+        or private not in ("allow", "block")
+        or (audience == "public" and private != "block")
+    ):
         raise Error("distribution.disclosure", "invalid private disclosure policy")
     return Distribution(
         cast(str, identifier),
@@ -562,8 +585,10 @@ def _entry(value: object, canonical: bool) -> DisclosureEntry:
     identifier, entry_class, match = value.get("id"), value.get("class"), value.get("match")
     if (
         not valid_skill_name(identifier)
-        or entry_class not in {"credential", "public-disclosure", "note"}
-        or match not in {"literal", "glob"}
+        or not isinstance(entry_class, str)
+        or entry_class not in ("credential", "public-disclosure", "note")
+        or not isinstance(match, str)
+        or match not in ("literal", "glob")
     ):
         raise Error("disclosure.entry", "invalid disclosure entry")
     pattern = _text(value.get("value"), "disclosure value", 256)
@@ -572,9 +597,7 @@ def _entry(value: object, canonical: bool) -> DisclosureEntry:
         match == "glob" and pattern.count("*") + pattern.count("?") > 8
     ):
         raise Error("disclosure.pattern", "invalid disclosure pattern")
-    return DisclosureEntry(
-        cast(str, identifier), cast(str, entry_class), cast(str, match), pattern, retired
-    )
+    return DisclosureEntry(cast(str, identifier), entry_class, match, pattern, retired)
 
 
 def parse_disclosure(document: JSONObject, *, canonical: bool = True) -> DisclosurePolicy:
@@ -615,33 +638,84 @@ def load_candidate(path: Path) -> tuple[Tree, dict[str, object], str, str]:
     return tree, fields, body, tree_digest(tree, domain=b"remek.candidate.v1\0")
 
 
-def _records(base: Path) -> tuple[tuple[JSONObject, ...], tuple[JSONObject, ...]]:
+def _records(  # noqa: PLR0912
+    root: Path, base: Path
+) -> tuple[tuple[JSONObject, ...], tuple[JSONObject, ...], list[Finding]]:
     result: list[tuple[JSONObject, ...]] = []
-    total = 0
+    findings: list[Finding] = []
+    total, count = 0, 0
     for folder, kind in (("evidence", "eval-receipt"), ("approvals", "approval")):
         values: list[JSONObject] = []
         directory = base / folder
+        record = "evidence" if folder == "evidence" else "approval"
         if real_directory(directory):
-            members = tuple(
-                item for item in directory_members(directory) if not is_private_name(item.name)
-            )
-            if sum(map(len, result)) + len(members) > MAX_RECORDS:
-                raise Error("governance.bounds", "skill governance exceeds bounds")
+            failures: dict[str, Error] = {}
+            try:
+                raw_members = _directory_members(directory, failures)
+            except Error as exc:
+                code = (
+                    "governance.bounds" if exc.code == "filesystem.limit" else f"{record}.malformed"
+                )
+                findings.append(_f(code, exc.message, str(directory.relative_to(root))))
+                result.append(tuple(values))
+                continue
+            members = tuple(item for item in raw_members if not is_private_name(item.name))
+            for member in raw_members:
+                if is_private_name(member.name):
+                    findings.append(
+                        _f(
+                            "transaction.residue",
+                            "transaction residue",
+                            str((directory / member.name).relative_to(root)),
+                        )
+                    )
+            remaining = max(0, MAX_RECORDS - count)
+            if len(members) > remaining:
+                findings.append(
+                    _f(
+                        "governance.bounds",
+                        "immutable record count exceeds bounds",
+                        str(directory.relative_to(root)),
+                    )
+                )
+                members = members[:remaining]
+            count += len(members)
             for member in members:
-                data = read(directory / member.name, limit=MAX_RECORD_BYTES).data
-                total += len(data)
-                if not stat.S_ISREG(member.mode) or member.name != _hash(data) + ".json":
-                    raise Error("governance.identity", "invalid content-addressed record")
-                values.append(parse_canonical_document(data, kind=kind))
+                path = directory / member.name
+                relative = str(path.relative_to(root))
+                if member.name in failures:
+                    findings.append(
+                        _f(f"{record}.malformed", failures[member.name].message, relative)
+                    )
+                    continue
+                try:
+                    data = read(path, limit=MAX_RECORD_BYTES).data
+                    total += len(data)
+                    if not stat.S_ISREG(member.mode) or member.name != _hash(data) + ".json":
+                        raise Error("governance.identity", "invalid content-addressed record")
+                    value = parse_canonical_document(data, kind=kind)
+                    if kind == "eval-receipt":
+                        validate_evidence_intrinsic(value, stored=True)
+                    else:
+                        validate_approval_intrinsic(value, stored=True)
+                    values.append(value)
+                except Error as exc:
+                    findings.append(_f(f"{record}.malformed", exc.message, relative))
         result.append(tuple(values))
     if total > MAX_SKILL_GOV:
-        raise Error("governance.bounds", "skill governance exceeds bounds")
-    return result[0], result[1]
+        findings.append(
+            _f(
+                "governance.bounds",
+                "immutable record bytes exceed bounds",
+                str(base.relative_to(root)),
+            )
+        )
+    return result[0], result[1], findings
 
 
 def _governance(  # noqa: PLR0913
     root: Path, config: Config, name: str, candidate: Tree, fields: dict[str, object], body: str
-) -> Skill:
+) -> tuple[Skill, list[Finding]]:
     base = checked_path(root, root / ".remek" / "skills" / name)
     policy = parse_policy(load_canonical_document(base / "policy.json", kind="skill-policy"), name)
     provenance = parse_provenance(
@@ -655,20 +729,23 @@ def _governance(  # noqa: PLR0913
     )
     if _hash(read(base / "sources" / provenance.source_label).data) != provenance.source_digest:
         raise Error("provenance.source", "retained source digest differs")
-    evidence, approvals = _records(base)
-    return Skill(
-        name,
-        root / config.skills_root / name,
-        fields,
-        body,
-        tree_digest(candidate, domain=b"remek.candidate.v1\0"),
-        candidate,
-        policy,
-        provenance,
-        routing,
-        behavior,
-        evidence,
-        approvals,
+    evidence, approvals, findings = _records(root, base)
+    return (
+        Skill(
+            name,
+            root / config.skills_root / name,
+            fields,
+            body,
+            tree_digest(candidate, domain=b"remek.candidate.v1\0"),
+            candidate,
+            policy,
+            provenance,
+            routing,
+            behavior,
+            evidence,
+            approvals,
+        ),
+        findings,
     )
 
 
@@ -704,6 +781,7 @@ def _governance_document(text: str) -> bool:
     return (
         isinstance(value, dict)
         and value.get("schema") == SCHEMA
+        and isinstance(value.get("kind"), str)
         and value.get("kind") in _GOVERNANCE_KINDS
     )
 
@@ -966,10 +1044,9 @@ def _owned_layout(root: Path, config: Config | None, issues: _Findings) -> None:
     for name in governed:
         base = root / ".remek/skills" / name
         check(base, allowed_skill)
-        for folder in ("sources", "evidence", "approvals"):
-            directory = base / folder
-            if real_directory(directory):
-                check(directory, {item.name: False for item in directory_members(directory)})
+        directory = base / "sources"
+        if real_directory(directory):
+            check(directory, {item.name: False for item in directory_members(directory)})
     if config:
         allowed = {name: True for name in governed} if config.skills_root == "skills" else None
         check(root / config.skills_root, allowed)
@@ -1019,8 +1096,9 @@ def inspect_repository(root: Path) -> RepositoryInspection:  # noqa: PLR0912, PL
             try:
                 tree, fields, body = _candidate(checked_path(root, path))
                 issues.extend(_tree_residue(tree, str(path.relative_to(root))))
-                skill = _governance(root, config, name, tree, fields, body)
+                skill, record_findings = _governance(root, config, name, tree, fields, body)
                 skills.append(skill)
+                issues.extend(record_findings)
                 issues.extend(_skill_findings(skill, root))
                 if disclosure:
                     for item in skill.tree.files:
@@ -1121,17 +1199,18 @@ def _plans(inspection: RepositoryInspection, skill: Skill, kind: str) -> list[Ev
     ]
 
 
+def _record_path(skill: Skill, folder: str, document: JSONObject) -> str:
+    kind = cast(str, document["kind"])
+    data = render(
+        kind,
+        {key: value for key, value in document.items() if key not in {"schema", "kind"}},
+    )
+    return f".remek/skills/{skill.name}/{folder}/{_hash(data)}.json"
+
+
 def repository_findings(inspection: RepositoryInspection) -> tuple[Finding, ...]:
     issues = list(inspection.issues)
     for skill in inspection.skills:
-        if any(item.get("evidenceKind") not in {"routing", "behavior"} for item in skill.evidence):
-            issues.append(
-                _f(
-                    "evidence.malformed",
-                    "receipt has an invalid evidence kind",
-                    f".remek/skills/{skill.name}/evidence",
-                )
-            )
         for kind in ("routing", "behavior"):
             passing = False
             for receipt in (item for item in skill.evidence if item.get("evidenceKind") == kind):
@@ -1150,7 +1229,7 @@ def repository_findings(inspection: RepositoryInspection) -> tuple[Finding, ...]
                         _f(
                             "evidence.malformed",
                             malformed.message,
-                            f".remek/skills/{skill.name}/evidence",
+                            _record_path(skill, "evidence", receipt),
                         )
                     )
             if not passing:
@@ -1258,9 +1337,96 @@ def approval_template(inspection: RepositoryInspection, dist: str, skill_name: s
     }
 
 
+def validate_approval_intrinsic(document: JSONObject, *, stored: bool = False) -> JSONObject:
+    keys = {
+        "schema",
+        "kind",
+        "skill",
+        "candidate",
+        "provenanceDigest",
+        "distribution",
+        "distributionContextDigest",
+        "audience",
+        "target",
+        "delivery",
+        "rightsReviewed",
+        "proprietaryContentReviewed",
+        "publicIrreversibilityAcknowledged",
+        "exceptions",
+        "reviewer",
+        "reviewedOn",
+    }
+    skill, distribution, audience = (
+        document.get("skill"),
+        document.get("distribution"),
+        document.get("audience"),
+    )
+    if (
+        document.get("schema") != SCHEMA
+        or document.get("kind") != "approval"
+        or set(document) != keys
+        or not valid_skill_name(skill)
+        or distribution == "verify"
+        or not valid_skill_name(distribution)
+        or not isinstance(audience, str)
+        or audience not in ("private", "public")
+        or not all(
+            _digest(document.get(key))
+            for key in ("candidate", "provenanceDigest", "distributionContextDigest")
+        )
+    ):
+        raise Error("approval.shape", "approval fields are intrinsically invalid")
+    _distribution_target(document.get("target"), audience)
+    delivery = document.get("delivery")
+    if (
+        not isinstance(delivery, list)
+        or not delivery
+        or any(not isinstance(item, str) or item not in ("gh", "npx") for item in delivery)
+        or delivery != sorted(set(cast(list[str], delivery)))
+    ):
+        raise Error("approval.shape", "approval delivery is invalid")
+    booleans = (
+        document.get("rightsReviewed"),
+        document.get("proprietaryContentReviewed"),
+        document.get("publicIrreversibilityAcknowledged"),
+    )
+    if any(type(value) is not bool for value in booleans):
+        raise Error("approval.shape", "approval review fields must be booleans")
+    if stored and (booleans[0] is not True or booleans[1] is not True):
+        raise Error("approval.incomplete", "stored approval is internally incomplete")
+    if audience == "public" and booleans[2] is not True:
+        raise Error("approval.incomplete", "public approval lacks irreversibility acknowledgement")
+    reviewer = _text(document.get("reviewer"), "reviewer", 128)
+    reviewed_on = _text(document.get("reviewedOn"), "review date", 10)
+    try:
+        parsed_date = date.fromisoformat(reviewed_on)
+    except ValueError:
+        parsed_date = None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", reviewed_on) is None or parsed_date is None:
+        raise Error("approval.date", "reviewedOn invalid; nothing recorded; use YYYY-MM-DD")
+    exceptions = document.get("exceptions")
+    if not isinstance(exceptions, list) or len(exceptions) > 64:
+        raise Error("approval.exceptions", "exception list is invalid")
+    identifiers: list[str] = []
+    for value in exceptions:
+        allowed = {"id", "digest"} if stored else {"id"}
+        if (
+            not isinstance(value, dict)
+            or set(value) not in ({"id", "digest"}, allowed)
+            or not valid_skill_name(value.get("id"))
+            or ("digest" in value and not _digest(value.get("digest")))
+        ):
+            raise Error("approval.exceptions", "exception entry is intrinsically invalid")
+        identifiers.append(cast(str, value["id"]))
+    if len(identifiers) != len(set(identifiers)) or (stored and identifiers != sorted(identifiers)):
+        raise Error("approval.exceptions", "exception ids must be unique and normalized")
+    return {**document, "reviewer": reviewer, "reviewedOn": reviewed_on}
+
+
 def validate_approval(
     document: JSONObject, inspection: RepositoryInspection, dist: str, skill_name: str
 ) -> JSONObject:
+    document = validate_approval_intrinsic(document)
     template = approval_template(inspection, dist, skill_name)
     if set(document) != set(template):
         raise Error(
@@ -1290,16 +1456,7 @@ def validate_approval(
         )
     ):
         raise Error("approval.incomplete", "review incomplete; nothing recorded; complete it")
-    reviewer, reviewed_on = (
-        _text(document.get("reviewer"), "reviewer", 128),
-        _text(document.get("reviewedOn"), "review date", 10),
-    )
-    try:
-        parsed_date = date.fromisoformat(reviewed_on)
-    except ValueError:
-        parsed_date = None
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", reviewed_on) is None or parsed_date is None:
-        raise Error("approval.date", "reviewedOn invalid; nothing recorded; use YYYY-MM-DD")
+    reviewer, reviewed_on = cast(str, document["reviewer"]), cast(str, document["reviewedOn"])
     exceptions, active, normalized, seen = (
         document.get("exceptions"),
         inspection.disclosure.active() if inspection.disclosure else {},
@@ -1359,7 +1516,15 @@ def _approval(
 def release_findings(  # noqa: PLR0912
     inspection: RepositoryInspection, dist: str
 ) -> tuple[Finding, ...]:
-    issues = [item for item in repository_findings(inspection) if item.severity == "error"]
+    checked_findings = repository_findings(inspection)
+    malformed = tuple(
+        item
+        for item in checked_findings
+        if item.severity == "error" and item.code in {"evidence.malformed", "approval.malformed"}
+    )
+    if malformed:
+        return tuple(sorted(set(malformed)))
+    issues = [item for item in checked_findings if item.severity == "error"]
     distribution = inspection.distribution(dist)
     by_name = {item.name: item for item in inspection.skills}
     members = tuple(by_name[name] for name in distribution.skills if name in by_name)
@@ -1386,6 +1551,27 @@ def release_findings(  # noqa: PLR0912
         ):
             issues.append(
                 _f("release.rights", "rights or license is incomplete", f"{base}/provenance.json")
+            )
+        candidate_license = skill.fields.get("license")
+        if distribution.audience == "public" and (
+            not isinstance(candidate_license, str)
+            or not candidate_license.strip()
+            or candidate_license != skill.provenance.license
+        ):
+            actual_license = (
+                repr(candidate_license)
+                if isinstance(candidate_license, str) and len(candidate_license) <= 128
+                else "missing or invalid"
+            )
+            issues.append(
+                _f(
+                    "release.license",
+                    f"actual candidate license is {actual_license}; expected "
+                    f"{skill.provenance.license!r} from reviewed provenance; repair: set "
+                    "SKILL.md frontmatter license to that reviewed value, or revise provenance "
+                    "through accept if it is wrong",
+                    str(skill.path.relative_to(inspection.root) / "SKILL.md"),
+                )
             )
         matches = disclosure_matches(skill, inspection.disclosure, distribution)
         required_exceptions = {
@@ -1584,9 +1770,9 @@ def audit_repository(root: Path) -> tuple[Finding, ...]:
         issues.append(
             _f(
                 "audit.remek-incompatible" if incompatible else "audit.compatible",
-                "valid open format is outside remek profile"
+                "structurally valid open format is outside remek profile"
                 if incompatible
-                else "valid under open and remek profiles",
+                else "structurally valid under open and remek profiles",
                 label,
                 "warning" if incompatible else "info",
             )

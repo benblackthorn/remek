@@ -497,22 +497,40 @@ def snapshot_tree(path: Path, *, reject_bytecode: bool = False) -> Tree:
         os.close(descriptor)
 
 
-def directory_members(path: Path) -> tuple[DirectoryMember, ...]:
+def _directory_members(
+    path: Path, failures: dict[str, Error] | None = None
+) -> tuple[DirectoryMember, ...]:
     root = checked_root(path)
     descriptor = os.open(root, _DIRECTORY_FLAGS)
     try:
         entries = _bounded_entries(descriptor, root, [0])
-        keys: set[str] = set()
+        keys: dict[str, str] = {}
         result: list[DirectoryMember] = []
         for name, info in entries:
-            key = portable_path(name)
-            if key in keys:
-                raise Error("filesystem.collision", f"directory has a portable collision: {name}")
-            keys.add(key)
             result.append(DirectoryMember(name, info.st_mode))
+            try:
+                key = portable_path(name)
+            except Error as exc:
+                if failures is None:
+                    raise
+                failures[name] = exc
+                continue
+            prior = keys.get(key)
+            if prior is not None:
+                error = Error("filesystem.collision", f"directory has a portable collision: {name}")
+                if failures is None:
+                    raise error
+                failures[prior] = error
+                failures[name] = error
+            else:
+                keys[key] = name
         return tuple(result)
     finally:
         os.close(descriptor)
+
+
+def directory_members(path: Path) -> tuple[DirectoryMember, ...]:
+    return _directory_members(path)
 
 
 def _file_fingerprint(data: bytes, mode: int) -> str:

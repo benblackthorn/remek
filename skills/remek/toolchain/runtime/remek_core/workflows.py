@@ -6,6 +6,7 @@ import json
 import os
 import re
 import selectors
+import stat
 import subprocess
 import tempfile
 import time
@@ -122,12 +123,27 @@ def _text_digest(value: object) -> str | None:
     return _hash(value.encode())
 
 
-def _verification_digest(value: JSONValue) -> str:
-    if value == "not-performed":
-        return value
-    if not isinstance(value, dict):
+def _target_lineage_digest(target: JSONObject, observation: JSONObject) -> str:
+    values = (
+        observation.get("provider"),
+        target.get("hostname"),
+        target.get("nameWithOwner"),
+        target.get("expectedVisibility"),
+        observation.get("visibility"),
+        target.get("branch"),
+    )
+    if (
+        any(not isinstance(value, str) or not value for value in values)
+        or observation.get("provider") != target.get("provider")
+        or observation.get("hostname") != target.get("hostname")
+        or observation.get("nameWithOwner") != target.get("nameWithOwner")
+    ):
         raise Error("release.target", "target verification is invalid")
-    return _hash(render("target-verification", {"value": value}))
+    digest = hashlib.sha256(b"remek.release-target-lineage.v2\0")
+    for value in values:
+        data = cast(str, value).encode()
+        digest.update(len(data).to_bytes(8, "big") + data)
+    return digest.hexdigest()
 
 
 def _hex(value: object, lengths: tuple[int, ...] = (64,)) -> bool:
@@ -161,7 +177,8 @@ def _manifest(  # noqa: PLR0912, PLR0915
 
     if (
         set(document) != _RELEASE_KEYS
-        or document.get("audience") not in {"private", "public"}
+        or not isinstance(document.get("audience"), str)
+        or document.get("audience") not in ("private", "public")
         or not _hex(document.get("sourceCommit"), (40, 64))
         or not all(
             _hex(document.get(key))
@@ -188,7 +205,7 @@ def _manifest(  # noqa: PLR0912, PLR0915
     files: list[tuple[str, int, bytes]] = []
     for item in objects("files", {"path", "mode", "sha256"}):
         path, mode, digest = item.get("path"), item.get("mode"), item.get("sha256")
-        if not isinstance(path, str) or mode not in {0o644, 0o755} or not _hex(digest):
+        if not isinstance(path, str) or mode not in (0o644, 0o755) or not _hex(digest):
             invalid()
         files.append((path, mode, bytes.fromhex(cast(str, digest))))
     directory_paths = [path for path, _ in directories]
@@ -483,14 +500,19 @@ def init_plan(
     if not project and exists(skills):
         if not real_directory(skills):
             raise Error(
-                "init.skills", "existing skills/ is not an empty real directory; use --project"
+                "init.skills",
+                "existing skills/ is not an empty real directory; repair: follow the documented "
+                "first-time in-place migration, or use --project only to govern .agents/skills "
+                "intentionally",
             )
         members = directory_members(skills)
         if members:
             names = ", ".join(sorted(item.name for item in members)[:5])
             raise Error(
                 "init.skills",
-                f"existing skills/ contains foreign entries ({names}); use --project",
+                f"existing skills/ contains foreign entries ({names}); repair: follow the "
+                "documented first-time in-place migration; --project intentionally governs "
+                ".agents/skills instead",
             )
     files = {item.path: item for item in state.files}
     toolchain_files = [item for item in state.files if item.path.startswith(".remek/")]
@@ -566,7 +588,13 @@ def _candidate_skeleton(name: str) -> Tree:
 
 
 def _normalized_import(path: Path, name: str) -> Tree:
-    tree = snapshot(checked(path), reject_bytecode=True)
+    canonical = checked(path)
+    if canonical.name != name:
+        raise Error(
+            "scaffold.import",
+            "imported directory basename and SKILL.md name must both match --name",
+        )
+    tree = snapshot(canonical, reject_bytecode=True)
     files = list(tree.files)
     index = next((position for position, item in enumerate(files) if item.path == "SKILL.md"), None)
     if index is None:
@@ -580,13 +608,20 @@ def _normalized_import(path: Path, name: str) -> Tree:
         raise Error("scaffold.import", "imported skill name must match --name")
     metadata = fields.get("metadata")
     if isinstance(metadata, dict):
-        normalized = {
+        normalized_metadata = {
             key: value for key, value in metadata.items() if key not in INJECTED_METADATA_KEYS
         }
-        fields = {**fields, "metadata": normalized}
-        if not normalized:
+        fields = {**fields, "metadata": normalized_metadata}
+        if not normalized_metadata:
             fields.pop("metadata")
-    files[index] = File("SKILL.md", render_skill(fields, body), item.mode)
+    try:
+        normalized_skill = render_skill(fields, body)
+    except FrontmatterError as exc:
+        raise Error(
+            "scaffold.import",
+            f"imported SKILL.md is outside remek's supported profile: {exc}",
+        ) from None
+    files[index] = File("SKILL.md", normalized_skill, item.mode)
     return assemble(files, list(tree.directories), root_mode=tree.root_mode)
 
 
@@ -699,12 +734,13 @@ def _workspace_tree_revision(skill: Skill, root: Path) -> Tree:
     return assemble(files, directories, root_mode=0o700)
 
 
-def _git_checkout_containing(path: Path) -> Path | None:
+def _git_checkout_containing(path: Path, forbidden_roots: tuple[Path, ...]) -> Path | None:
     try:
         completed = _run(
             _git_arguments(path, "rev-parse", "--show-toplevel"),
             cwd=path,
             environment=_git_environment(),
+            forbidden_roots=forbidden_roots,
         )
     except Error as exc:
         if exc.code == "external.unavailable" and exc.message.startswith("cannot run git"):
@@ -765,12 +801,20 @@ def scaffold_workspace(  # noqa: PLR0913
         raise Error(
             "scaffold.boundary", "workspace conflict; none created; choose absent path outside"
         )
+    if source is not None:
+        source = source.expanduser().absolute()
     if any(exists(ancestor / _RELEASE_FILE) for ancestor in (parent, *parent.parents)):
         raise Error(
             "scaffold.boundary",
             "workspace under release tree; none created; choose absent path outside",
         )
-    checkout = _git_checkout_containing(parent)
+    forbidden = (
+        root,
+        canonical,
+        loaded_toolchain,
+        *((source,) if source is not None else ()),
+    )
+    checkout = _git_checkout_containing(parent, forbidden)
     if checkout is not None:
         raise Error(
             "scaffold.checkout", "workspace in Git; none created; choose absent path outside"
@@ -783,8 +827,6 @@ def scaffold_workspace(  # noqa: PLR0913
     else:
         if origin is None:
             raise Error("scaffold.origin", "new skills require --origin")
-        if source is not None:
-            source = source.expanduser().absolute()
         tree = _workspace_tree_new(cast(str, name), origin, source)
         mode = "new"
     outcome = apply_changes(
@@ -801,8 +843,10 @@ def _workspace_document(path: Path) -> JSONObject:
     expected = {"candidate", "policy", "provenance", "routingCases", "behaviorCases"}
     if (
         set(document) != _WORKSPACE_KEYS
-        or document.get("mode") not in {"new", "revision"}
-        or document.get("origin") not in {"captured", "designed", "imported"}
+        or not isinstance(document.get("mode"), str)
+        or document.get("mode") not in ("new", "revision")
+        or not isinstance(document.get("origin"), str)
+        or document.get("origin") not in ("captured", "designed", "imported")
         or not isinstance(document.get("skill"), str)
         or not isinstance(document.get("sourcePath"), str)
         or not isinstance(base, dict)
@@ -1313,38 +1357,119 @@ def _capture_process(
     return returncode, buffers
 
 
-def _run(
+def _within_forbidden(path: Path, roots: tuple[Path, ...]) -> bool:
+    for root in roots:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _external_command(  # noqa: PLR0912
+    arguments: list[str],
+    environment: dict[str, str],
+    forbidden_roots: tuple[Path, ...],
+) -> tuple[list[str], dict[str, str]]:
+    tool = arguments[0]
+    value = environment.get("PATH")
+    if value is None:
+        raise Error("external.unavailable", f"cannot run {tool}")
+    roots = tuple(root.resolve(strict=False) for root in forbidden_roots)
+    directories: list[Path] = []
+    executable: Path | None = None
+    for entry in value.split(os.pathsep):
+        path = Path(entry)
+        if not entry or not path.is_absolute():
+            raise Error(
+                "external.path",
+                f"{tool} PATH entries must be nonempty absolute directories; correct PATH",
+            )
+        try:
+            canonical = path.resolve(strict=True)
+            info = canonical.stat()
+        except OSError:
+            continue
+        if not stat.S_ISDIR(info.st_mode) or _within_forbidden(canonical, roots):
+            continue
+        tool_targets: dict[str, Path] = {}
+        unsafe = False
+        for name in ("git", "gh"):
+            try:
+                target = (canonical / name).resolve(strict=True)
+                target_info = target.stat()
+            except OSError:
+                continue
+            if (
+                not stat.S_ISREG(target_info.st_mode)
+                or target_info.st_nlink != 1
+                or _within_forbidden(target, roots)
+            ):
+                unsafe = True
+                break
+            tool_targets[name] = target
+        if unsafe:
+            continue
+        directories.append(canonical)
+        if executable is not None:
+            continue
+        candidate = tool_targets.get(tool)
+        if candidate is None:
+            continue
+        if os.access(candidate, os.X_OK):
+            executable = candidate
+    if executable is None:
+        raise Error("external.unavailable", f"cannot run {tool}")
+    child = dict(environment)
+    child["PATH"] = os.pathsep.join(str(path) for path in directories)
+    return [str(executable), *arguments[1:]], child
+
+
+def _run(  # noqa: PLR0913
     arguments: list[str],
     *,
     cwd: Path,
     environment: dict[str, str] | None = None,
+    forbidden_roots: tuple[Path, ...] = (),
     input_text: str = "",
     output_limit: int = _PROCESS_OUTPUT_LIMIT,
 ) -> subprocess.CompletedProcess[str]:
+    logical_arguments = arguments
+    child_arguments = arguments
+    child_environment = environment
+    if arguments[0] in {"git", "gh"}:
+        if not forbidden_roots:
+            raise Error("external.boundary", f"{arguments[0]} selected roots are unavailable")
+        child_arguments, child_environment = _external_command(
+            arguments,
+            environment if environment is not None else dict(os.environ),
+            forbidden_roots,
+        )
     input_data = input_text.encode()
     if len(input_data) > output_limit:
-        raise Error("external.input", f"{arguments[0]} input exceeds its bound")
+        raise Error("external.input", f"{logical_arguments[0]} input exceeds its bound")
     with tempfile.TemporaryFile() as input_file:
         input_file.write(input_data)
         input_file.seek(0)
         try:
             process = subprocess.Popen(
-                arguments,
+                child_arguments,
                 cwd=cwd,
-                env=environment,
+                env=child_environment,
                 stdin=input_file,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
         except OSError:
-            raise Error("external.unavailable", f"cannot run {arguments[0]}") from None
-        returncode, buffers = _capture_process(process, arguments, output_limit)
+            raise Error("external.unavailable", f"cannot run {logical_arguments[0]}") from None
+        returncode, buffers = _capture_process(process, logical_arguments, output_limit)
     try:
         stdout = bytes(buffers["stdout"]).decode()
         stderr = bytes(buffers["stderr"]).decode()
     except UnicodeDecodeError:
-        raise Error("external.output", f"{arguments[0]} output is not UTF-8") from None
-    return subprocess.CompletedProcess(arguments, returncode, stdout, stderr)
+        raise Error("external.output", f"{logical_arguments[0]} output is not UTF-8") from None
+    return subprocess.CompletedProcess(logical_arguments, returncode, stdout, stderr)
 
 
 def _git_arguments(root: Path, *arguments: str) -> list[str]:
@@ -1388,13 +1513,16 @@ def _git_environment() -> dict[str, str]:
 def _git(
     root: Path,
     *arguments: str,
+    forbidden_roots: tuple[Path, ...] | None = None,
     allowed: tuple[int, ...] = (0,),
     input_text: str = "",
 ) -> str:
+    roots = forbidden_roots if forbidden_roots is not None else (root,)
     completed = _run(
         _git_arguments(root, *arguments),
         cwd=root,
         environment=_git_environment(),
+        forbidden_roots=roots,
         input_text=input_text,
     )
     if completed.returncode not in allowed:
@@ -1410,10 +1538,20 @@ def _nul_records(value: str) -> list[str]:
     return value[:-1].split("\0")
 
 
-def _guard_git_attributes(root: Path, paths: str) -> None:
+def _guard_git_attributes(root: Path, paths: str, forbidden_roots: tuple[Path, ...]) -> None:
     if not paths:
         return
-    attributes = _nul_records(_git(root, "check-attr", "--all", "-z", "--stdin", input_text=paths))
+    attributes = _nul_records(
+        _git(
+            root,
+            "check-attr",
+            "--all",
+            "-z",
+            "--stdin",
+            forbidden_roots=forbidden_roots,
+            input_text=paths,
+        )
+    )
     if len(attributes) % 3:
         raise Error("git.output", "Git returned malformed attribute records")
     for index in range(0, len(attributes), 3):
@@ -1422,8 +1560,10 @@ def _guard_git_attributes(root: Path, paths: str) -> None:
             raise Error("git.attributes", "release Git roots may not select content filters")
 
 
-def _guard_git_worktree(root: Path) -> None:
-    graft_path = Path(_git(root, "rev-parse", "--git-path", "info/grafts"))
+def _guard_git_worktree(root: Path, forbidden_roots: tuple[Path, ...]) -> None:
+    graft_path = Path(
+        _git(root, "rev-parse", "--git-path", "info/grafts", forbidden_roots=forbidden_roots)
+    )
     graft_path = graft_path if graft_path.is_absolute() else root / graft_path
     if exists(graft_path):
         try:
@@ -1432,11 +1572,33 @@ def _guard_git_worktree(root: Path) -> None:
             raise Error("git.grafts", "Git graft state is unsupported") from None
         if grafts.data.strip():
             raise Error("git.grafts", "Git graft state is unsupported")
-    tracked = _git(root, "ls-files", "--cached", "--full-name", "-z")
-    tagged = _nul_records(_git(root, "ls-files", "--cached", "--full-name", "-v", "-z"))
+    tracked = _git(
+        root, "ls-files", "--cached", "--full-name", "-z", forbidden_roots=forbidden_roots
+    )
+    tagged = _nul_records(
+        _git(
+            root,
+            "ls-files",
+            "--cached",
+            "--full-name",
+            "-v",
+            "-z",
+            forbidden_roots=forbidden_roots,
+        )
+    )
     if any(len(record) < 3 or record[:2] != "H " for record in tagged):
         raise Error("git.index-flags", "Git index flags can hide state")
-    for record in _nul_records(_git(root, "ls-files", "--cached", "--full-name", "--stage", "-z")):
+    for record in _nul_records(
+        _git(
+            root,
+            "ls-files",
+            "--cached",
+            "--full-name",
+            "--stage",
+            "-z",
+            forbidden_roots=forbidden_roots,
+        )
+    ):
         try:
             metadata, _ = record.split("\t", 1)
             mode, _, stage = metadata.split(" ")
@@ -1446,14 +1608,15 @@ def _guard_git_worktree(root: Path) -> None:
             raise Error("git.index", "Git index contains unresolved entries")
         if mode == "160000":
             raise Error("git.submodule", "release Git roots may not contain submodules")
-    _guard_git_attributes(root, tracked)
+    _guard_git_attributes(root, tracked, forbidden_roots)
 
 
-def _git_state(root: Path) -> JSONObject:
-    top = Path(_git(root, "rev-parse", "--show-toplevel")).resolve()
+def _git_state(root: Path, forbidden_roots: tuple[Path, ...] | None = None) -> JSONObject:
+    roots = forbidden_roots if forbidden_roots is not None else (root,)
+    top = Path(_git(root, "rev-parse", "--show-toplevel", forbidden_roots=roots)).resolve()
     if top != root:
         raise Error("git.root", "selected path is not the Git worktree root")
-    shallow = _git(root, "rev-parse", "--is-shallow-repository")
+    shallow = _git(root, "rev-parse", "--is-shallow-repository", forbidden_roots=roots)
     if shallow not in {"false", "true"}:
         raise Error("git.output", "Git returned invalid shallow state")
     if shallow == "true":
@@ -1466,6 +1629,7 @@ def _git_state(root: Path) -> JSONObject:
         "--name-only",
         "--get-regexp",
         r"^fsck\.",
+        forbidden_roots=roots,
         allowed=(0, 1),
     ):
         raise Error("git.integrity", "repository-local fsck configuration is unsupported")
@@ -1476,25 +1640,47 @@ def _git_state(root: Path) -> JSONObject:
             ),
             cwd=root,
             environment=_git_environment(),
+            forbidden_roots=roots,
         )
     except Error:
         raise Error("git.integrity", "Git object integrity check failed") from None
     if integrity.returncode != 0:
         raise Error("git.integrity", "Git object integrity check failed")
-    _guard_git_worktree(root)
-    status = _git(root, "status", "--porcelain=v1", "--untracked-files=all", "-z")
+    _guard_git_worktree(root, roots)
+    status = _git(
+        root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "-z",
+        forbidden_roots=roots,
+    )
     if status:
         raise Error("git.dirty", "Git dirty; repository unchanged; commit or clean")
-    head = _git(root, "rev-parse", "HEAD")
-    branch = _git(root, "symbolic-ref", "--quiet", "--short", "HEAD", allowed=(0, 1)) or None
+    head = _git(root, "rev-parse", "HEAD", forbidden_roots=roots)
+    branch = (
+        _git(
+            root,
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "HEAD",
+            forbidden_roots=roots,
+            allowed=(0, 1),
+        )
+        or None
+    )
     return {"root": str(root), "head": head, "branch": branch}
 
 
-def _require_ancestor(root: Path, ancestor: str, descendant: str) -> None:
+def _require_ancestor(
+    root: Path, ancestor: str, descendant: str, forbidden_roots: tuple[Path, ...]
+) -> None:
     completed = _run(
         _git_arguments(root, "merge-base", "--is-ancestor", ancestor, descendant),
         cwd=root,
         environment=_git_environment(),
+        forbidden_roots=forbidden_roots,
     )
     if completed.returncode == 1:
         raise Error("release.ancestry", "prior source commit is not an ancestor")
@@ -1502,7 +1688,7 @@ def _require_ancestor(root: Path, ancestor: str, descendant: str) -> None:
         raise Error("git.query", "cannot verify source commit ancestry")
 
 
-def _release_history(root: Path) -> tuple[JSONObject, ...]:
+def _release_history(root: Path, forbidden_roots: tuple[Path, ...]) -> tuple[JSONObject, ...]:
     commits = _git(
         root,
         "log",
@@ -1515,6 +1701,7 @@ def _release_history(root: Path) -> tuple[JSONObject, ...]:
         "HEAD",
         "--",
         _RELEASE_FILE,
+        forbidden_roots=forbidden_roots,
     ).splitlines()
     if len(commits) > _RELEASE_HISTORY_LIMIT:
         raise Error("release.lineage", "release manifest history exceeds its bound")
@@ -1524,6 +1711,7 @@ def _release_history(root: Path) -> tuple[JSONObject, ...]:
             _git_arguments(root, "show", "--no-textconv", f"{commit}:{_RELEASE_FILE}"),
             cwd=root,
             environment=_git_environment(),
+            forbidden_roots=forbidden_roots,
         )
         if completed.returncode != 0:
             raise Error("release.lineage", "release manifest history is unreadable")
@@ -1542,6 +1730,7 @@ def _require_release_lineage(  # noqa: PLR0913
     source_identity: str,
     distribution_identity: str,
     audience: str,
+    forbidden_roots: tuple[Path, ...],
 ) -> None:
     for manifest in history:
         if manifest.get("sourceRepositoryIdentity") != source_identity:
@@ -1557,7 +1746,7 @@ def _require_release_lineage(  # noqa: PLR0913
         if len(previous) != len(source_head):
             raise Error("release.lineage", "release manifest history is invalid")
         try:
-            _require_ancestor(source_root, previous, source_head)
+            _require_ancestor(source_root, previous, source_head, forbidden_roots)
         except Error as error:
             if error.code == "release.ancestry":
                 raise
@@ -1565,11 +1754,14 @@ def _require_release_lineage(  # noqa: PLR0913
 
 
 def _require_target_lineage(history: tuple[JSONObject, ...], digest: str) -> None:
-    if any(manifest.get("targetVerificationDigest") != digest for manifest in history):
-        raise Error(
-            "release.target-lineage",
-            "target or audience changed; use a fresh mirror and history",
-        )
+    for manifest in history:
+        prior = manifest.get("targetVerificationDigest")
+        if prior != digest:
+            raise Error(
+                "release.target-lineage",
+                f"history target digest is {prior}; expected {digest}; repair: use a fresh mirror "
+                "and history",
+            )
 
 
 def _target_text(target: JSONObject, key: str) -> str:
@@ -1579,7 +1771,7 @@ def _target_text(target: JSONObject, key: str) -> str:
     return value
 
 
-def verify_github_target(target: JSONObject) -> JSONObject:
+def verify_github_target(target: JSONObject, forbidden_roots: tuple[Path, ...]) -> JSONObject:
     host = _target_text(target, "hostname")
     repository = _target_text(target, "nameWithOwner")
     expected = _target_text(target, "expectedVisibility")
@@ -1591,6 +1783,7 @@ def verify_github_target(target: JSONObject) -> JSONObject:
         ["gh", "repo", "view", "--json", "nameWithOwner,visibility", "--", repository],
         cwd=Path("/"),
         environment=environment,
+        forbidden_roots=forbidden_roots,
         output_limit=_TARGET_OUTPUT_LIMIT,
     )
     if completed.returncode != 0:
@@ -1603,7 +1796,10 @@ def verify_github_target(target: JSONObject) -> JSONObject:
         raise Error("target.output", "target fields invalid; repo unchanged; fix GitHub CLI")
     if value.get("nameWithOwner") != repository or value.get("visibility") != expected:
         raise Error(
-            "target.mismatch", "target differs; repository unchanged; correct target/access"
+            "target.mismatch",
+            f"observed target differs: "
+            f"{value.get('nameWithOwner')}/{value.get('visibility')}; expected "
+            f"{repository}/{expected}; repository unchanged; repair: correct target or access",
         )
     return {"provider": "github", "hostname": host, **cast(JSONObject, value)}
 
@@ -1645,7 +1841,9 @@ def _remote_identity(url: str) -> tuple[str, str]:
     return host.casefold(), repository
 
 
-def _remote_binding(root: Path, target: JSONObject) -> JSONObject:
+def _remote_binding(
+    root: Path, target: JSONObject, forbidden_roots: tuple[Path, ...]
+) -> JSONObject:
     remote = _target_text(target, "remote")
     override_patterns = [
         rf"remote\.{re.escape(remote)}\.(vcs|receivepack|mirror)",
@@ -1664,6 +1862,7 @@ def _remote_binding(root: Path, target: JSONObject) -> JSONObject:
             "--name-only",
             "--get-regexp",
             f"^({'|'.join(patterns)})$",
+            forbidden_roots=forbidden_roots,
             allowed=(0, 1),
         )
         if values:
@@ -1685,6 +1884,7 @@ def _remote_binding(root: Path, target: JSONObject) -> JSONObject:
                     "--null",
                     "--get-all",
                     key,
+                    forbidden_roots=forbidden_roots,
                     allowed=(0, 1),
                 )
             )
@@ -1741,15 +1941,16 @@ def _git_file_mode(mode: int) -> str:
     return f"100{git_mode(mode):o}"
 
 
-def _require_head_files(
+def _require_head_files(  # noqa: PLR0913
     root: Path,
     head: str,
     scopes: list[str],
     files: list[File],
     refusal: tuple[str, str],
+    forbidden_roots: tuple[Path, ...],
 ) -> None:
     code, message = refusal
-    algorithm = _git(root, "rev-parse", "--show-object-format")
+    algorithm = _git(root, "rev-parse", "--show-object-format", forbidden_roots=forbidden_roots)
     expected: dict[str, tuple[str, str]] = {}
     for item in files:
         if item.path in expected:
@@ -1757,7 +1958,17 @@ def _require_head_files(
         expected[item.path] = (_git_file_mode(item.mode), _git_blob_oid(item.data, algorithm))
     actual: dict[str, tuple[str, str]] = {}
     for record in _nul_records(
-        _git(root, "ls-tree", "-r", "-z", "--full-tree", head, "--", *scopes)
+        _git(
+            root,
+            "ls-tree",
+            "-r",
+            "-z",
+            "--full-tree",
+            head,
+            "--",
+            *scopes,
+            forbidden_roots=forbidden_roots,
+        )
     ):
         try:
             metadata, path = record.split("\t", 1)
@@ -1771,7 +1982,7 @@ def _require_head_files(
         raise Error(code, message)
 
 
-def _source_head(inspection: Inspection, head: str) -> None:
+def _source_head(inspection: Inspection, head: str, forbidden_roots: tuple[Path, ...]) -> None:
     if inspection.config is None:
         raise Error("release.config", "repository configuration is unavailable")
     root = inspection.root
@@ -1793,10 +2004,11 @@ def _source_head(inspection: Inspection, head: str) -> None:
         scopes,
         files,
         ("release.source-head", "source files differ from raw HEAD"),
+        forbidden_roots,
     )
 
 
-def _mirror_head(root: Path, head: str) -> None:
+def _mirror_head(root: Path, head: str, forbidden_roots: tuple[Path, ...]) -> None:
     payload_files: list[File] = []
     if exists(root / "skills"):
         payload_files, _ = _prefix(snapshot(root / "skills"), "skills")
@@ -1808,6 +2020,7 @@ def _mirror_head(root: Path, head: str) -> None:
         ["skills", _RELEASE_FILE],
         payload_files,
         ("release.mirror-head", "managed mirror files differ from raw HEAD"),
+        forbidden_roots,
     )
 
 
@@ -1851,7 +2064,7 @@ def _release(  # noqa: PLR0913
     payload: Tree,
     source: JSONObject,
     *,
-    target_verification: JSONValue,
+    target_lineage_digest: str,
     pre_release_head: str | None,
     remote_binding: JSONValue,
     expected_paths: list[str],
@@ -1900,7 +2113,7 @@ def _release(  # noqa: PLR0913
         "candidates": candidates,
         "directories": directories,
         "files": files,
-        "targetVerificationDigest": _verification_digest(target_verification),
+        "targetVerificationDigest": target_lineage_digest,
         "preReleaseHead": pre_release_head,
         "remoteBinding": remote_binding,
         "expectedCommitPaths": cast(list[JSONValue], expected_paths),
@@ -1955,36 +2168,49 @@ def verify_materialized_release(root: Path) -> JSONObject:
 
 
 def _release_source(
-    root: Path, dist: str
+    root: Path,
+    dist: str,
+    forbidden_roots: tuple[Path, ...],
+    destination: str,
 ) -> tuple[Inspection, Distribution, tuple[Skill, ...], Tree, JSONObject]:
     inspection = inspect(root)
     blocking = next(
         (item for item in release_findings(inspection, dist) if item.severity == "error"), None
     )
     if blocking:
-        raise Error("release.readiness", f"{blocking.code}: {blocking.message}")
+        message = blocking.message.replace(
+            "; source unchanged;", f"; source and {destination} unchanged;", 1
+        )
+        if message == blocking.message:
+            message += f"; source and {destination} unchanged"
+        path = f" {blocking.path}" if blocking.path else ""
+        raise Error("release.readiness", f"{blocking.code}{path}: {message}")
     distribution = inspection.distribution(dist)
     skills = {item.name: item for item in inspection.skills}
     members = tuple(skills[name] for name in distribution.skills)
     payload = _skills_payload(members)
-    source = _git_state(root)
-    _source_head(inspection, cast(str, source["head"]))
+    source = _git_state(root, forbidden_roots)
+    _source_head(inspection, cast(str, source["head"]), forbidden_roots)
     return inspection, distribution, members, payload, source
 
 
-def _mirror_context(
+def _mirror_context(  # noqa: PLR0913
     root: Path,
     selected: Path,
     inspection: Inspection,
     distribution: Distribution,
     source: JSONObject,
+    forbidden_roots: tuple[Path, ...],
 ) -> tuple[JSONObject, tuple[JSONObject, ...]]:
-    state = _git_state(selected)
-    if state.get("branch") != distribution.target.get("branch"):
+    state = _git_state(selected, forbidden_roots)
+    expected_branch = distribution.target.get("branch")
+    if state.get("branch") != expected_branch:
         raise Error(
-            "release.branch", "mirror branch differs; repository unchanged; switch/reapprove"
+            "release.branch",
+            f"mirror branch is {state.get('branch')}; expected {expected_branch}; repository "
+            f"unchanged; repair: switch the mirror to {expected_branch} or reapprove a new target",
         )
-    history = _release_history(selected)
+    history = _release_history(selected, forbidden_roots)
     config = cast(Config, inspection.config)
     _require_release_lineage(
         history,
@@ -1993,11 +2219,12 @@ def _mirror_context(
         _hash(config.repository_id.encode()),
         _hash(distribution.distribution_id.encode()),
         distribution.audience,
+        forbidden_roots,
     )
     return state, history
 
 
-def release_plan(
+def release_plan(  # noqa: PLR0915
     root: Path,
     dist: str,
     *,
@@ -2008,7 +2235,21 @@ def release_plan(
     root = checked(root)
     if (mirror is None) == (staging is None):
         raise Error("release.destination", "choose exactly one of --mirror or --staging-only")
-    inspection, distribution, members, payload, source = _release_source(root, dist)
+    destination: Path | None = None
+    if staging is not None:
+        selected_staging = staging.expanduser().absolute()
+        parent = checked(selected_staging.parent)
+        destination = parent / selected_staging.name
+        forbidden_roots = (root, destination)
+    else:
+        selected_mirror = checked(cast(Path, mirror))
+        forbidden_roots = (root, selected_mirror)
+    inspection, distribution, members, payload, source = _release_source(
+        root,
+        dist,
+        forbidden_roots,
+        "staging" if staging is not None else "mirror",
+    )
     inputs: JSONObject = {
         "distribution": dist,
         "mirror": None,
@@ -2016,13 +2257,12 @@ def release_plan(
         "adopt": adopt,
     }
     if staging is not None:
-        selected = staging.expanduser().absolute()
-        parent = checked(selected.parent)
-        destination = parent / selected.name
+        assert destination is not None
+        parent = destination.parent
         if (
             exists(destination)
             or paths_related(root, destination)
-            or _git_checkout_containing(parent) is not None
+            or _git_checkout_containing(parent, forbidden_roots) is not None
         ):
             raise Error("release.staging", "staging conflict; none created; choose external path")
         manifest_data, manifest = _release(
@@ -2031,7 +2271,7 @@ def release_plan(
             members,
             payload,
             source,
-            target_verification="not-performed",
+            target_lineage_digest="not-performed",
             pre_release_head=None,
             remote_binding=None,
             expected_paths=[],
@@ -2052,26 +2292,29 @@ def release_plan(
             bindings={"sourceGit": source, "releaseId": manifest["releaseId"]},
             data={"releaseId": manifest["releaseId"], "verification": "not-performed"},
         )
-    selected = checked(cast(Path, mirror))
+    selected = selected_mirror
     if paths_related(root, selected):
         raise Error("release.mirror", "mirror overlaps source; both unchanged; choose another")
-    mirror_state, history = _mirror_context(root, selected, inspection, distribution, source)
+    mirror_state, history = _mirror_context(
+        root, selected, inspection, distribution, source, forbidden_roots
+    )
     future_paths = "".join(f"skills/{item.path}\0" for item in payload.files) + _RELEASE_FILE + "\0"
-    _guard_git_attributes(selected, future_paths)
+    _guard_git_attributes(selected, future_paths, forbidden_roots)
     old_path = selected / _RELEASE_FILE
     old: JSONObject | None = None
     if exists(old_path):
         old = _load_release_manifest(old_path)
         _verify_payload(selected, old)
-        _mirror_head(selected, cast(str, mirror_state["head"]))
+        _mirror_head(selected, cast(str, mirror_state["head"]), forbidden_roots)
     elif exists(selected / "skills") and not adopt:
         raise Error(
             "release.adoption",
             "unmanifested skills; mirror unchanged; use --adopt-existing or fresh mirror",
         )
-    remote = _remote_binding(selected, distribution.target)
-    target = verify_github_target(distribution.target)
-    _require_target_lineage(history, _verification_digest(target))
+    remote = _remote_binding(selected, distribution.target, forbidden_roots)
+    target = verify_github_target(distribution.target, forbidden_roots)
+    target_lineage = _target_lineage_digest(distribution.target, target)
+    _require_target_lineage(history, target_lineage)
     expected_paths = _commit_paths(selected / "skills", payload)
     manifest_data, manifest = _release(
         inspection,
@@ -2079,7 +2322,7 @@ def release_plan(
         members,
         payload,
         source,
-        target_verification=target,
+        target_lineage_digest=target_lineage,
         pre_release_head=cast(str, mirror_state["head"]),
         remote_binding=remote,
         expected_paths=expected_paths,
@@ -2090,7 +2333,7 @@ def release_plan(
             key: value for key, value in manifest.items() if key not in changing
         }:
             raise Error("release.identity", "release id context differs")
-        _release_commit(selected, old)
+        _release_commit(selected, old, forbidden_roots)
         return Plan(
             "release",
             root,
@@ -2141,8 +2384,18 @@ def release_plan(
     )
 
 
-def _release_commit(root: Path, manifest: JSONObject) -> tuple[str, str, tuple[str, ...]]:
-    parents = _git(root, "rev-list", "--parents", "-n", "1", "HEAD").split()
+def _release_commit(
+    root: Path, manifest: JSONObject, forbidden_roots: tuple[Path, ...]
+) -> tuple[str, str, tuple[str, ...]]:
+    parents = _git(
+        root,
+        "rev-list",
+        "--parents",
+        "-n",
+        "1",
+        "HEAD",
+        forbidden_roots=forbidden_roots,
+    ).split()
     if len(parents) != 2 or parents[1] != manifest.get("preReleaseHead"):
         raise Error("release.commit", "mirror HEAD is not one commit over its bound parent")
     changed = sorted(
@@ -2157,6 +2410,7 @@ def _release_commit(root: Path, manifest: JSONObject) -> tuple[str, str, tuple[s
                 "-z",
                 parents[1],
                 parents[0],
+                forbidden_roots=forbidden_roots,
             )
         )
     )
@@ -2175,7 +2429,10 @@ def _release_commit(root: Path, manifest: JSONObject) -> tuple[str, str, tuple[s
 def release_verify(root: Path, dist: str, mirror: Path) -> dict[str, object]:
     root = checked(root)
     selected = checked(mirror)
-    inspection, distribution, members, payload, source = _release_source(root, dist)
+    forbidden_roots = (root, selected)
+    inspection, distribution, members, payload, source = _release_source(
+        root, dist, forbidden_roots, "mirror"
+    )
     manifest = _load_release_manifest(selected / _RELEASE_FILE)
     if manifest.get("targetVerificationDigest") == "not-performed":
         raise Error("release.staging", "staging-only output is never push-ready")
@@ -2187,29 +2444,58 @@ def release_verify(root: Path, dist: str, mirror: Path) -> dict[str, object]:
             "audience changed; use a separate mirror and history",
         )
     if manifest.get("sourceCommit") != source.get("head"):
-        raise Error("release.source", "source commit differs")
-    if manifest.get("sourceBranchDigest") != _text_digest(source.get("branch")):
-        raise Error("release.source", "source branch state differs from the manifest")
-    mirror_state, history = _mirror_context(root, selected, inspection, distribution, source)
-    _verify_payload(selected, manifest)
-    _mirror_head(selected, cast(str, mirror_state["head"]))
-    _, parent, changed = _release_commit(selected, manifest)
-    remote = _remote_binding(selected, distribution.target)
-    if remote != manifest.get("remoteBinding"):
-        raise Error("release.remote", "remote changed; mirror unchanged; restore/re-release")
-    target = verify_github_target(distribution.target)
-    if _verification_digest(target) != manifest.get("targetVerificationDigest"):
         raise Error(
-            "release.target", "target verification changed; mirror unchanged; restore/re-release"
+            "release.source",
+            f"actual source commit is {source.get('head')}; expected manifest-bound "
+            f"{manifest.get('sourceCommit')}; source and mirror unchanged; repair: restore the "
+            "bound source commit, or prepare and verify a fresh release from the current source",
         )
-    _require_target_lineage(history, _verification_digest(target))
+    branch_digest = _text_digest(source.get("branch"))
+    if manifest.get("sourceBranchDigest") != branch_digest:
+        raise Error(
+            "release.source",
+            f"actual source branch digest is {branch_digest}; expected manifest-bound "
+            f"{manifest.get('sourceBranchDigest')}; source and mirror unchanged; repair: switch "
+            "to the bound source branch, or prepare and verify a fresh release",
+        )
+    mirror_state, history = _mirror_context(
+        root, selected, inspection, distribution, source, forbidden_roots
+    )
+    _verify_payload(selected, manifest)
+    _mirror_head(selected, cast(str, mirror_state["head"]), forbidden_roots)
+    _, parent, changed = _release_commit(selected, manifest, forbidden_roots)
+    remote = _remote_binding(selected, distribution.target, forbidden_roots)
+    if remote != manifest.get("remoteBinding"):
+        actual_remote = _hash(json.dumps(remote, sort_keys=True, separators=(",", ":")).encode())
+        expected_remote = _hash(
+            json.dumps(
+                manifest.get("remoteBinding"), sort_keys=True, separators=(",", ":")
+            ).encode()
+        )
+        raise Error(
+            "release.remote",
+            f"actual remote-binding digest is {actual_remote}; expected {expected_remote}; "
+            "mirror unchanged; repair: restore the manifest-bound remote alias and URLs, or "
+            "prepare a fresh release after any distribution change and required reapproval",
+        )
+    target = verify_github_target(distribution.target, forbidden_roots)
+    target_lineage = _target_lineage_digest(distribution.target, target)
+    if target_lineage != manifest.get("targetVerificationDigest"):
+        raise Error(
+            "release.target",
+            f"actual target-lineage digest is {target_lineage}; expected "
+            f"{manifest.get('targetVerificationDigest')}; mirror unchanged; repair: restore the "
+            "approved GitHub target and visibility, or use a fresh approved distribution and "
+            "fresh mirror history for a semantic target change",
+        )
+    _require_target_lineage(history, target_lineage)
     manifest_data, _ = _release(
         inspection,
         dist,
         members,
         payload,
         source,
-        target_verification=target,
+        target_lineage_digest=target_lineage,
         pre_release_head=parent,
         remote_binding=remote,
         expected_paths=[

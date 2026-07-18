@@ -4,6 +4,7 @@ import json
 
 import pytest
 from helpers import (
+    PROFILE,
     PROJECT,
     approval_document,
     authored,
@@ -15,6 +16,8 @@ from helpers import (
     write_input,
 )
 from remek_core.contract import load_document, render_document
+from remek_core.evaluation import parse_profile, validate_evidence_intrinsic
+from remek_core.filesystem import directory_members
 from remek_core.frontmatter import render_skill
 from remek_core.model import RemekError
 from remek_core.repository import (
@@ -22,12 +25,16 @@ from remek_core.repository import (
     audit_repository,
     inspect_repository,
     merge_disclosure,
+    new_config,
     parse_disclosure,
     parse_distribution,
+    parse_policy,
+    parse_provenance,
     readme_change,
     release_findings,
     repository_findings,
     validate_approval,
+    validate_approval_intrinsic,
 )
 from remek_core.transaction import apply_changes
 from remek_core.workflows import (
@@ -43,6 +50,16 @@ def errors(root):
     return [
         item for item in repository_findings(inspect_repository(root)) if item.severity == "error"
     ]
+
+
+def write_record(directory, document):
+    data = render_document(
+        document["kind"],
+        {key: value for key, value in document.items() if key not in {"schema", "kind"}},
+    )
+    path = directory / f"{hashlib.sha256(data).hexdigest()}.json"
+    path.write_bytes(data)
+    return path
 
 
 def test_project_mode_preserves_foreign_neighbor(tmp_path):
@@ -62,6 +79,34 @@ def test_accepted_payload_is_pure(tmp_path):
     assert skill.policy.lifecycle == "ready"
     assert skill.policy.exposure == "private-only"
     assert "remek-" not in (skill.path / "SKILL.md").read_text()
+
+
+def test_hostile_record_enums_refuse_as_remek_errors(tmp_path):
+    records = ready_source(tmp_path) / ".remek/skills/deploy-safely"
+    policy = load_document(records / "policy.json", kind="skill-policy")
+    provenance = load_document(records / "provenance.json", kind="provenance")
+    evidence = load_document(next((records / "evidence").iterdir()), kind="eval-receipt")
+    approval = load_document(next((records / "approvals").iterdir()), kind="approval")
+    policy["lifecycle"], provenance["origin"] = {}, {}
+    distribution = distribution_document()
+    distribution["audience"] = {}
+    disclosure = disclosure_document(disclosure_entry("entry", "value"))
+    disclosure["entries"][0]["class"] = {}
+    calls = (
+        lambda: new_config("11111111-1111-4111-8111-111111111111", skills_root={}),
+        lambda: parse_policy(policy, "deploy-safely"),
+        lambda: parse_provenance(provenance, "deploy-safely"),
+        lambda: parse_distribution(distribution),
+        lambda: parse_distribution({**distribution_document(), "delivery": [{}]}),
+        lambda: parse_disclosure(disclosure, canonical=False),
+        lambda: parse_profile({**PROFILE, "kind": []}),
+        lambda: validate_evidence_intrinsic({**evidence, "evidenceKind": {}}, stored=True),
+        lambda: validate_approval_intrinsic({**approval, "audience": {}}),
+        lambda: validate_approval_intrinsic({**approval, "delivery": [{}]}),
+    )
+    for call in calls:
+        with pytest.raises(RemekError):
+            call()
 
 
 def test_description_cannot_inject_readme_markers(tmp_path):
@@ -87,6 +132,7 @@ def test_governance_artifacts_make_payload_incompatible(tmp_path):
     artifact = root / "skills" / "deploy-safely" / "references" / "approval.json"
     artifact.parent.mkdir()
     artifact.write_text('{"schema":"remek.1","kind":"approval"}\n')
+    (artifact.parent / "hostile-kind.json").write_text('{"schema":"remek.1","kind":{}}\n')
     (artifact.parent / "integer.json").write_text('{"x":' + "1" * 5000 + "}")
     assert any(item.code == "skill.governance" for item in errors(root))
     assert any(item.code == "audit.remek-incompatible" for item in audit_repository(root))
@@ -170,7 +216,8 @@ def test_audit_names_each_exact_installer_key(key, tmp_path):
     )
     findings = audit_repository(skill)
     assert any(item.code == "audit.metadata" and key in item.message for item in findings)
-    assert any(item.code == "audit.remek-incompatible" for item in findings)
+    incompatible = next(item for item in findings if item.code == "audit.remek-incompatible")
+    assert incompatible.message == "structurally valid open format is outside remek profile"
 
 
 def test_near_match_is_not_normalized_by_audit(tmp_path):
@@ -188,7 +235,8 @@ def test_near_match_is_not_normalized_by_audit(tmp_path):
     )
     findings = audit_repository(skill)
     assert not any(item.code == "audit.metadata" for item in findings)
-    assert any(item.code == "audit.compatible" for item in findings)
+    compatible = next(item for item in findings if item.code == "audit.compatible")
+    assert compatible.message == "structurally valid under open and remek profiles"
 
 
 def test_audit_is_read_only_and_handles_empty(tmp_path):
@@ -377,6 +425,50 @@ def test_candidate_change_stales_evidence_and_approval(tmp_path):
     assert {"release.approval", "release.evidence.routing", "release.evidence.behavior"} <= codes
 
 
+def test_public_release_requires_exact_consumer_visible_license(tmp_path):
+    root = ready_source(tmp_path)
+    candidate = root / "skills/deploy-safely/SKILL.md"
+    skill = inspect_repository(root).skill("deploy-safely")
+    fields = dict(skill.fields)
+    fields.pop("license")
+    candidate.write_bytes(render_skill(fields, skill.body))
+    assert "release.license" not in {
+        item.code for item in release_findings(inspect_repository(root), "org-private")
+    }
+
+    policy_path = root / ".remek/skills/deploy-safely/policy.json"
+    policy = load_document(policy_path, kind="skill-policy")
+    policy["exposure"] = "public-eligible"
+    write_input(policy_path, policy)
+    distribution_path = root / ".remek/distributions/org-private.json"
+    distribution = load_document(distribution_path, kind="distribution")
+    distribution["audience"] = "public"
+    distribution["target"]["expectedVisibility"] = "PUBLIC"
+    write_input(distribution_path, distribution)
+    finding = next(
+        item
+        for item in release_findings(inspect_repository(root), "org-private")
+        if item.code == "release.license"
+    )
+    assert "actual candidate license is missing or invalid" in finding.message
+    assert "expected 'MIT'" in finding.message and "repair: set SKILL.md" in finding.message
+
+    fields["license"] = "Apache-2.0"
+    candidate.write_bytes(render_skill(fields, skill.body))
+    finding = next(
+        item
+        for item in release_findings(inspect_repository(root), "org-private")
+        if item.code == "release.license"
+    )
+    assert "actual candidate license is 'Apache-2.0'" in finding.message
+    assert "expected 'MIT'" in finding.message and "through accept" in finding.message
+    fields["license"] = "MIT"
+    candidate.write_bytes(render_skill(fields, skill.body))
+    assert "release.license" not in {
+        item.code for item in release_findings(inspect_repository(root), "org-private")
+    }
+
+
 @pytest.mark.parametrize(
     "axis",
     ["audience", "hostname", "repository", "remote", "branch", "delivery", "evidence"],
@@ -502,8 +594,8 @@ def test_disclosure_policy_screens_exported_skill_paths(tmp_path):
     assert {"release.approval", "release.disclosure"} <= codes
 
 
-@pytest.mark.parametrize("field", ("results", "evidenceKind"))
-def test_malformed_receipt_always_blocks(field, tmp_path):
+@pytest.mark.parametrize(("field", "stale"), (("results", True), ("evidenceKind", False)))
+def test_malformed_receipt_always_blocks(field, stale, tmp_path):
     root = ready_source(tmp_path)
     second = write_input(tmp_path / "second-distribution.json", distribution_document("org-second"))
     apply_changes(distribution_accept_plan(root, second).changes)
@@ -514,19 +606,85 @@ def test_malformed_receipt_always_blocks(field, tmp_path):
         if load_document(path, kind="eval-receipt")["evidenceKind"] == "routing"
     )
     document = load_document(original, kind="eval-receipt")
+    if stale:
+        document["candidate"] = "0" * 64
     if field == "results":
         document[field] = [{"invalid": True}]
     else:
         del document[field]
-    data = render_document(
-        "eval-receipt",
-        {key: value for key, value in document.items() if key not in {"schema", "kind"}},
-    )
     original.unlink()
-    (evidence / f"{hashlib.sha256(data).hexdigest()}.json").write_bytes(data)
-    assert any(
-        item.code == "evidence.malformed" for item in repository_findings(inspect_repository(root))
+    malformed = write_record(evidence, document)
+    inspection = inspect_repository(root)
+    assert inspection.skill("deploy-safely")
+    finding = next(
+        item for item in repository_findings(inspection) if item.code == "evidence.malformed"
     )
+    assert finding.path == str(malformed.relative_to(root))
+    assert {item.code for item in release_findings(inspection, "org-private")} == {
+        "evidence.malformed"
+    }
+
+
+def test_stored_approval_requires_normalized_exception_digest(tmp_path):
+    root = ready_source(tmp_path)
+    policy = write_input(
+        tmp_path / "policy.json",
+        disclosure_document(disclosure_entry("client", "reviewed procedure")),
+    )
+    apply_changes(disclosure_accept_plan(root, policy).changes)
+    approval = approval_document(root, exceptions=[{"id": "client"}])
+    apply_changes(
+        approve_record_plan(
+            root,
+            "org-private",
+            "deploy-safely",
+            write_input(tmp_path / "approval.json", approval),
+        ).changes
+    )
+    directory = root / ".remek/skills/deploy-safely/approvals"
+    original = next(
+        path
+        for path in directory.glob("*.json")
+        if load_document(path, kind="approval")["exceptions"]
+    )
+    document = load_document(original, kind="approval")
+    del document["exceptions"][0]["digest"]
+    original.unlink()
+    malformed = write_record(directory, document)
+
+    inspection = inspect_repository(root)
+    assert inspection.skill("deploy-safely")
+    finding = next(item for item in inspection.issues if item.code == "approval.malformed")
+    assert finding.path == str(malformed.relative_to(root))
+    assert {item.code for item in release_findings(inspection, "org-private")} == {
+        "approval.malformed"
+    }
+
+
+def test_malformed_unused_approval_blocks_with_exact_record_path(tmp_path):
+    root = ready_source(tmp_path)
+    baseline = inspect_repository(root).skill("deploy-safely")
+    document = approval_document(root)
+    document["unexpected"] = True
+    directory = root / ".remek/skills/deploy-safely/approvals"
+    malformed = write_record(directory, document)
+    invalid_name = directory / "bad\napproval.json"
+    invalid_name.write_text("{}")
+
+    with pytest.raises(RemekError, match="control character"):
+        directory_members(directory)
+
+    inspection = inspect_repository(root)
+    skill = inspection.skill("deploy-safely")
+    assert (len(skill.evidence), len(skill.approvals)) == (
+        len(baseline.evidence),
+        len(baseline.approvals),
+    )
+    paths = {item.path for item in inspection.issues if item.code == "approval.malformed"}
+    assert {str(malformed.relative_to(root)), str(invalid_name.relative_to(root))} <= paths
+    assert {item.code for item in release_findings(inspection, "org-private")} == {
+        "approval.malformed"
+    }
 
 
 def test_approval_binds_exact_policy_exceptions(

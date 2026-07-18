@@ -9,13 +9,18 @@ import sys
 from pathlib import Path
 
 import pytest
-from helpers import TOOLCHAIN, git_commit, initialized, mirror, ready_source
+from helpers import TOOLCHAIN, git_commit, initialized, mirror, ready_source, write_input
 from remek_core.app import _parser, main
 from remek_core.filesystem import portable_path
 from remek_core.model import Finding, RemekError
 from remek_core.plans import operation_document
 from remek_core.repository import _toolchain
-from remek_core.workflows import release_plan, verify_materialized_release
+from remek_core.workflows import (
+    accept_plan,
+    release_plan,
+    scaffold_workspace,
+    verify_materialized_release,
+)
 
 
 def run(arguments):
@@ -52,9 +57,17 @@ def test_json_result_uses_remek_1(tmp_path, capsys):
 def test_init_plan_show_apply_through_cli(tmp_path, capsys, monkeypatch):
     root = tmp_path / "source"
     plan = tmp_path.parent / f"{tmp_path.name}-init.json"
-    assert run(["init", str(root), "--output", str(plan)]) == 0
+    assert run(["--json", "init", str(root), "--output", str(plan)]) == 0
+    result = json.loads(capsys.readouterr().out)
     assert plan.is_file() and not root.exists()
-    capsys.readouterr()
+    shown = subprocess.run(
+        shlex.split(result["nextAction"]),
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert shown.returncode == 0 and "exact plan reconstructed" in shown.stdout
     assert run(["plan", "show", str(plan), "--max-bytes", "512"]) == 0
     rendered = capsys.readouterr().out
     assert "exact plan reconstructed" in rendered
@@ -63,12 +76,32 @@ def test_init_plan_show_apply_through_cli(tmp_path, capsys, monkeypatch):
     assert run(["--json", "plan", "show", str(plan)]) == 0
     json.loads(capsys.readouterr().out)
     assert run(["apply", str(plan)]) == 0
+    assert "final state changed" in capsys.readouterr().out
     assert (root / "remek.json").is_file()
     assert ".DS_Store" in (root / ".gitignore").read_text()
     occupied = tmp_path / "occupied"
     (occupied / "skills/foreign").mkdir(parents=True)
     assert run(["init", str(occupied)]) == 2
     assert "--project" in capsys.readouterr().err
+
+
+def test_readme_refusal_transcript_matches_cli(tmp_path, capsys):
+    root = ready_source(tmp_path)
+    workspace = tmp_path / "revision"
+    scaffold_workspace(root, workspace, skill_name="deploy-safely", bundle=TOOLCHAIN)
+    plan = accept_plan(root, workspace)
+    plan_path = tmp_path / "accept-plan.json"
+    plan_path.write_bytes(operation_document(plan, TOOLCHAIN)[0])
+    plan_path.chmod(0o600)
+    skill = workspace / "candidate/SKILL.md"
+    skill.write_text(skill.read_text() + "\ndrift after review\n")
+
+    assert run(["apply", str(plan_path)]) == 2
+    actual = capsys.readouterr().err
+    readme = Path("README.md").read_text()
+    marker = "$ ./remek apply …/accept.json\n"
+    transcript = readme.split(marker, 1)[1].split("```", 1)[0]
+    assert actual == transcript
 
 
 def test_apply_reports_final_post_cleanup_findings(tmp_path, capsys, monkeypatch):
@@ -88,8 +121,74 @@ def test_apply_reports_final_post_cleanup_findings(tmp_path, capsys, monkeypatch
         )
 
     monkeypatch.setattr("remek_core.app.check", findings)
-    assert run(["apply", str(plan)]) == 1
-    assert "transaction.residue" in capsys.readouterr().out
+    assert run(["apply", str(plan)]) == 3
+    output = capsys.readouterr().err
+    assert "blocking findings remain" in output and "transaction.residue" in output
+
+
+def test_diagnostic_templates_and_verify_help_name_the_next_action(tmp_path, capsys):
+    root = ready_source(tmp_path)
+    assert run(["--root", str(root), "doctor"]) == 0
+    assert "diagnosed source and trusted toolchain" in capsys.readouterr().out
+    target = root / "skills/deploy-safely"
+    assert run(["audit", str(target)]) == 0
+    assert f"audited {target}" in capsys.readouterr().out
+    assert run(["--root", str(root), "--json", "eval", "plan", "deploy-safely"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    evidence = result["data"]["template"]
+    evidence["profile"].update(
+        {"name": "focused-test", "version": "1", "runConfigDigest": "c" * 64}
+    )
+    for item in evidence["results"]:
+        item["passCount"] = 3
+    evidence["artifacts"][0]["digest"] = "d" * 64
+    evidence_path = write_input(tmp_path / "evidence.json", evidence)
+    evidence_plan = tmp_path / "evidence-plan.json"
+    action = result["nextAction"].split("then run ", 1)[1]
+    action = action.replace("/absolute/path/to/evidence.json", str(evidence_path)).replace(
+        "/absolute/path/to/evidence-plan.json", str(evidence_plan)
+    )
+    completed = subprocess.run(
+        shlex.split(action), cwd=tmp_path, check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0 and evidence_plan.is_file()
+    assert (
+        run(
+            [
+                "--root",
+                str(root),
+                "--json",
+                "approve",
+                "plan",
+                "org-private",
+                "--skill",
+                "deploy-safely",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    approval = result["data"]["template"]
+    approval.update(
+        {
+            "rightsReviewed": True,
+            "proprietaryContentReviewed": True,
+            "reviewer": "Focused reviewer",
+            "reviewedOn": "2026-07-17",
+        }
+    )
+    approval_path = write_input(tmp_path / "approval.json", approval)
+    approval_plan = tmp_path / "approval-plan.json"
+    action = result["nextAction"].split("then run ", 1)[1]
+    action = action.replace("/absolute/path/to/approval.json", str(approval_path)).replace(
+        "/absolute/path/to/approval-plan.json", str(approval_plan)
+    )
+    completed = subprocess.run(
+        shlex.split(action), cwd=tmp_path, check=False, capture_output=True, text=True
+    )
+    assert completed.returncode == 0 and approval_plan.is_file()
+    assert run(["release", "verify", "--help"]) == 0
+    assert "remek release verify DIST --mirror ABS" in capsys.readouterr().out
 
 
 def test_scaffold_is_only_direct_mutation(tmp_path, capsys):
@@ -158,7 +257,7 @@ def test_wrapper_accepts_installer_projection_and_metadata(tmp_path):
         if path.is_file():
             path.chmod(0o644)
     completed = execute_python(skill / "scripts/cli.py", "--version")
-    assert completed.returncode == 0 and completed.stdout == "remek 1.0.2\n"
+    assert completed.returncode == 0 and completed.stdout == "remek 1.0.3\n"
 
 
 def test_repair_reports_unrepairable_blockers(tmp_path, capsys):
@@ -247,13 +346,13 @@ def test_toolchain_identities_agree_on_unicode(tmp_path):
     assert {item.code for item in _toolchain(root)[1]} == {"toolchain.identity"}
 
 
-def test_release_apply_rolls_back_failed_postcondition(tmp_path, monkeypatch):
+def test_release_apply_rolls_back_failed_postcondition(tmp_path, monkeypatch, capsys):
     root = ready_source(tmp_path)
     git_commit(root)
     target = mirror(tmp_path)
     monkeypatch.setattr(
         "remek_core.workflows.verify_github_target",
-        lambda value: {
+        lambda value, _forbidden_roots: {
             "provider": "github",
             "hostname": value["hostname"],
             "nameWithOwner": value["nameWithOwner"],
@@ -270,6 +369,7 @@ def test_release_apply_rolls_back_failed_postcondition(tmp_path, monkeypatch):
 
     monkeypatch.setattr("remek_core.app.verify_materialized_release", fail)
     assert run(["apply", str(plan_path)]) == 2
+    assert "prior state was restored" in capsys.readouterr().err
     assert not (target / "skills").exists() and not (target / "release-manifest.json").exists()
     monkeypatch.setattr("remek_core.app.verify_materialized_release", verify_materialized_release)
     assert run(["apply", str(plan_path)]) == 0

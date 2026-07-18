@@ -3,6 +3,8 @@
 
 import argparse
 import json
+import os
+import shlex
 import sys
 from pathlib import Path
 from typing import Any, NoReturn, cast
@@ -49,6 +51,19 @@ from .workflows import (
 MAX_RENDERED_BYTES = 1024 * 1024
 
 
+def _next_command(bundle: Path, root: Path | None, *arguments: str) -> str:
+    fallback = bundle.parent / "scripts/cli.py"
+    bootstrap = Path(os.environ.get("REMEK_BOOTSTRAP", str(fallback))).expanduser().absolute()
+    command = (
+        [str(bootstrap)]
+        if bootstrap.name == "remek"
+        else ["python3", "-I", "-S", "-B", str(bootstrap)]
+    )
+    if root is not None:
+        command.extend(("--root", str(root)))
+    return shlex.join([*command, *arguments])
+
+
 class _Parser(argparse.ArgumentParser):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         kwargs["allow_abbrev"] = False
@@ -71,7 +86,7 @@ def _parser() -> _Parser:  # noqa: PLR0915
     )
     parser.add_argument("--root", type=Path, help="governed source root; default current directory")
     parser.add_argument("--json", action="store_true", help="emit one canonical JSON result")
-    parser.add_argument("--version", action="version", version="remek 1.0.2")
+    parser.add_argument("--version", action="version", version="remek 1.0.3")
     commands = parser.add_subparsers(dest="command", required=True)
 
     def command(name: str, help_text: str) -> argparse.ArgumentParser:
@@ -209,7 +224,17 @@ def _plan_result(plan: Plan, destination: Path | None, bundle: Path) -> Result:
         summary,
         changes=plan.project(),
         data=data,
-        next_action=f"remek plan show {artifact}" if artifact else None,
+        next_action=(
+            _next_command(
+                bundle,
+                None if plan.command == "init" else plan.root,
+                "plan",
+                "show",
+                artifact,
+            )
+            if artifact
+            else None
+        ),
     )
 
 
@@ -258,10 +283,21 @@ def _apply_result(arguments: argparse.Namespace, bundle: Path) -> Result:
     if plan.command != "release":
         findings = check(inspect(plan.root))
     errors = any(item.severity == "error" for item in findings)
+    status: Status = "refused" if errors and outcome.changed else "issues" if errors else "ok"
+    if errors and outcome.changed:
+        summary = (
+            "exact reviewed changes were applied; final state changed and blocking findings remain"
+        )
+    elif errors:
+        summary = "final state is unchanged but blocking findings remain"
+    elif outcome.changed:
+        summary = f"applied {len(plan.changes)} exact reviewed change(s); final state changed"
+    else:
+        summary = "exact plan was already current; final state unchanged"
     return Result(
         "apply",
-        "issues" if errors else "ok",
-        f"applied {len(plan.changes)} exact reviewed change(s)",
+        status,
+        summary,
         changed=outcome.changed,
         findings=findings,
         changes=plan.project(),
@@ -269,8 +305,21 @@ def _apply_result(arguments: argparse.Namespace, bundle: Path) -> Result:
     )
 
 
-def _template_result(command: str, summary: str, template: JSONObject, **data: object) -> Result:
-    return Result(command, "ok", summary, data={**data, "template": template})
+def _template_result(
+    command: str,
+    summary: str,
+    template: JSONObject,
+    *,
+    next_action: str,
+    **data: object,
+) -> Result:
+    return Result(
+        command,
+        "ok",
+        summary,
+        data={**data, "template": template},
+        next_action=next_action,
+    )
 
 
 def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
@@ -358,6 +407,18 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
                 "eval plan",
                 "offline evidence template prepared",
                 evidence.template(),
+                next_action="complete and save the observed results, then run "
+                + _next_command(
+                    bundle,
+                    root,
+                    "eval",
+                    "record",
+                    skill,
+                    "--from",
+                    "/absolute/path/to/evidence.json",
+                    "--output",
+                    "/absolute/path/to/evidence-plan.json",
+                ),
                 candidate=selected.digest,
                 routingCaseSetDigest=selected.routing_cases.digest,
                 behaviorCaseSetDigest=selected.behavior_cases.digest,
@@ -371,6 +432,20 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
                 "approve plan",
                 "reviewer-owned approval template prepared",
                 approval_template(inspect(root), distribution, skill),
+                next_action="complete and save the review declaration, then run "
+                + _next_command(
+                    bundle,
+                    root,
+                    "approve",
+                    "record",
+                    distribution,
+                    "--skill",
+                    skill,
+                    "--from",
+                    "/absolute/path/to/approval.json",
+                    "--output",
+                    "/absolute/path/to/approval-plan.json",
+                ),
             )
         return planned(approve_record_plan(root, distribution, skill, arguments.approval))
     if command == "release":
@@ -420,14 +495,32 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
     if command == "audit":
         target = checked(arguments.target)
         findings = audit_repository(target)
-        return _findings_result("audit", findings, {"root": str(target)})
+        error_count = sum(item.severity == "error" for item in findings)
+        return Result(
+            "audit",
+            "issues" if error_count else "ok",
+            (
+                f"audited {target}; found {error_count} structural blocker(s)"
+                if error_count
+                else f"audited {target}; payload is structurally compatible"
+            ),
+            findings=findings,
+            data={"root": str(target)},
+        )
     if command == "doctor":
         inspection = inspect(root)
         findings = check(inspection)
-        return _findings_result(
+        error_count = sum(item.severity == "error" for item in findings)
+        return Result(
             "doctor",
-            findings,
-            {
+            "issues" if error_count else "ok",
+            (
+                f"diagnosed source and trusted toolchain; found {error_count} blocking issue(s)"
+                if error_count
+                else "diagnosed source and trusted toolchain; both are internally consistent"
+            ),
+            findings=findings,
+            data={
                 "root": str(root),
                 "skills": [item.name for item in inspection.skills],
                 "toolchain": str(bundle),

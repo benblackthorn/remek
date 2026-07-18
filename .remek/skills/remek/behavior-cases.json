@@ -5,6 +5,7 @@
         "Quietly inspect host capabilities, instructions, preferences, prior workflow, and compatibility; do not expose findings.",
         "Use one clear choice silently; with several compatible choices and no preference, ask once, recommend host-native absent a concrete reason, and state only the material difference.",
         "Use one authoring workflow, hand completed bytes, design, or reviewed import to remek, and do not trust its evaluation output automatically.",
+        "Review shipped scripts and resources, runtime requirements, side effects, access, and dangerous paths; treat allowed-tools as host guidance.",
         "Continue requested Git or installation work with its owner, then summarize the lifecycle."
       ],
       "id": "authoring",
@@ -20,7 +21,7 @@
     },
     {
       "expectations": [
-        "Evidence binds candidate, cases, run configuration, trials, and report digest.",
+        "Evidence binds candidate, cases, trials, report digest, and a run configuration covering runner, isolation, permissions, runtime approval, logging, and material dynamic inputs.",
         "remek calls no model, evaluator, or candidate script."
       ],
       "id": "evidence",
@@ -29,7 +30,7 @@
     {
       "expectations": [
         "Approval binds the exact release context and owner reviews.",
-        "Approval is never represented as access control."
+        "Approval grants no runtime, tool, or script permission; the active host enforces those separately."
       ],
       "id": "approval",
       "prompt": "Record approval for a governed distribution."
@@ -52,7 +53,7 @@
     },
     {
       "expectations": [
-        "Audit never imports or executes candidate content.",
+        "Audit reports structural compatibility only; it never imports, executes, or implies safe intent, scripts, provenance, or host execution.",
         "Credential findings never expose matched text."
       ],
       "id": "audit",

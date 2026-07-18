@@ -10,6 +10,14 @@ os.environ["REMEK_BOOTSTRAP"] = str(RUNTIME.parents[1] / "scripts/cli.py")
 sys.path.insert(0, str(RUNTIME))
 
 MAX_COLLECTED_TESTS = 250
+SAFE_PATH = os.pathsep.join(
+    entry for entry in os.environ.get("PATH", "").split(os.pathsep) if Path(entry).is_absolute()
+)
+
+
+@pytest.fixture(autouse=True)
+def trusted_external_path(monkeypatch):
+    monkeypatch.setenv("PATH", SAFE_PATH)
 
 
 @pytest.fixture

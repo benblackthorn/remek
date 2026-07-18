@@ -1,0 +1,59 @@
+{
+  "artifacts": [
+    {
+      "digest": "bf2af9bae815b752198f647c220db96ce522f6cd4b0894994e0209bf6fff7298",
+      "label": "evaluation-report"
+    }
+  ],
+  "candidate": "7327f2bc7cd27fc22f3f5cde2eb0deb23c5b34e9cfe9bb11a97cb47213ba83a6",
+  "caseSetDigest": "c1898e04a29229c35cc46383bd7887856b9784aec537a68d6061a368bf4df44f",
+  "distribution": null,
+  "evidenceKind": "behavior",
+  "kind": "eval-receipt",
+  "profile": {
+    "claim": "regression",
+    "kind": "manual-host",
+    "minimumPassCount": 3,
+    "name": "Codex desktop gpt-5.6-sol ultra",
+    "runConfigDigest": "789ed9b3acb2e6ff2180698dc7fc3583cafb1aae4ed78b1c12cf0ca1249e29a7",
+    "trialCount": 3,
+    "version": "gpt-5.6-sol / Codex 26.715.21425+5488"
+  },
+  "results": [
+    {
+      "caseId": "authoring",
+      "passCount": 3
+    },
+    {
+      "caseId": "accept",
+      "passCount": 3
+    },
+    {
+      "caseId": "evidence",
+      "passCount": 3
+    },
+    {
+      "caseId": "approval",
+      "passCount": 3
+    },
+    {
+      "caseId": "release",
+      "passCount": 3
+    },
+    {
+      "caseId": "release-refusal",
+      "passCount": 3
+    },
+    {
+      "caseId": "audit",
+      "passCount": 3
+    },
+    {
+      "caseId": "repair",
+      "passCount": 3
+    }
+  ],
+  "routingCatalogDigest": null,
+  "schema": "remek.1",
+  "skill": "remek"
+}

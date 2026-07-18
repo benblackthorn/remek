@@ -48,7 +48,7 @@ from remek_core.workflows import (
 )
 
 
-def verified_target(target):
+def verified_target(target, _forbidden_roots=()):
     return {
         "provider": "github",
         "hostname": target["hostname"],
@@ -81,6 +81,14 @@ def execution_sentinel(tmp_path):
     return command, marker
 
 
+def fake_tool(directory, name, body):
+    directory.mkdir(parents=True, exist_ok=True)
+    command = directory / name
+    command.write_text(f"#!{sys.executable}\n{body}\n")
+    command.chmod(0o755)
+    return command
+
+
 def git(root, *arguments, **options):
     return subprocess.run(
         ["git", *arguments], cwd=root, check=options.pop("check", True), **options
@@ -94,6 +102,199 @@ def test_subprocess_output_is_bounded(tmp_path):
             cwd=tmp_path,
             output_limit=1024,
         )
+
+
+def test_external_tool_uses_canonical_executable_and_filtered_path(tmp_path):
+    trusted = tmp_path / "trusted"
+    surviving = tmp_path / "surviving"
+    surviving.mkdir()
+    missing = tmp_path / "missing"
+    nondirectory = tmp_path / "not-a-directory"
+    nondirectory.write_text("not a PATH directory")
+    command = fake_tool(
+        trusted,
+        "git",
+        "import json, os, sys; print(json.dumps([sys.argv[0], os.environ['PATH']]))",
+    )
+    environment = {
+        **os.environ,
+        "PATH": os.pathsep.join(map(str, (missing, trusted, nondirectory, surviving))),
+    }
+
+    completed = _run(
+        ["git"],
+        cwd=tmp_path,
+        environment=environment,
+        forbidden_roots=(tmp_path / "selected",),
+    )
+
+    executable, child_path = json.loads(completed.stdout)
+    assert Path(executable) == command.resolve()
+    assert child_path == os.pathsep.join(map(str, (trusted.resolve(), surviving.resolve())))
+
+
+def test_external_tool_refuses_empty_and_relative_path_entries(tmp_path):
+    trusted = tmp_path / "trusted"
+    fake_tool(trusted, "git", "pass")
+    for value in (f".:{trusted}", f"{trusted}:", f"relative:{trusted}"):
+        with pytest.raises(RemekError, match="nonempty absolute"):
+            _run(
+                ["git"],
+                cwd=tmp_path,
+                environment={**os.environ, "PATH": value},
+                forbidden_roots=(tmp_path / "selected",),
+            )
+
+
+def test_external_tool_refuses_canonical_directory_and_tool_targets(tmp_path):
+    selected = tmp_path / "selected"
+    hostile = selected / "bin"
+    marker = tmp_path / "hostile-ran"
+    bad = fake_tool(
+        hostile,
+        "git",
+        f"from pathlib import Path; Path({str(marker)!r}).touch()",
+    )
+    trusted = tmp_path / "trusted"
+    fake_tool(trusted, "git", "import os; print(os.environ['PATH'])")
+    directory_link = tmp_path / "directory-link"
+    directory_link.symlink_to(hostile, target_is_directory=True)
+
+    for first in (directory_link, tmp_path / "tool-link"):
+        if first.name == "tool-link":
+            first.mkdir()
+            (first / "git").symlink_to(bad)
+        completed = _run(
+            ["git"],
+            cwd=tmp_path,
+            environment={**os.environ, "PATH": f"{first}:{trusted}"},
+            forbidden_roots=(selected,),
+        )
+        assert completed.stdout == f"{trusted.resolve()}\n" and not marker.exists()
+
+    for name in ("git", "gh"):
+        hostile_tool = fake_tool(
+            hostile,
+            name,
+            f"from pathlib import Path; Path({str(marker)!r}).touch()",
+        )
+        linked = tmp_path / f"linked-{name}"
+        linked.mkdir()
+        os.link(hostile_tool, linked / name)
+        fallback = tmp_path / f"trusted-{name}"
+        fake_tool(fallback, name, f"print('trusted {name}')")
+        completed = _run(
+            [name],
+            cwd=tmp_path,
+            environment={**os.environ, "PATH": f"{linked}:{fallback}"},
+            forbidden_roots=(selected,),
+        )
+        assert completed.stdout == f"trusted {name}\n" and not marker.exists()
+
+
+@pytest.mark.parametrize("link_kind", ("symlink", "hardlink"))
+def test_filtered_child_path_cannot_reenter_selected_root(tmp_path, link_kind):
+    selected = tmp_path / "selected"
+    hostile = selected / "bin"
+    marker = tmp_path / "hostile-ran"
+    hostile_git = fake_tool(
+        hostile,
+        "git",
+        f"from pathlib import Path; Path({str(marker)!r}).touch()",
+    )
+    bridge = tmp_path / "bridge"
+    bridge.mkdir()
+    if link_kind == "symlink":
+        (bridge / "git").symlink_to(hostile_git)
+    else:
+        os.link(hostile_git, bridge / "git")
+    trusted_gh = tmp_path / "trusted-gh"
+    fake_tool(
+        trusted_gh,
+        "gh",
+        "import subprocess; result = subprocess.run(['git'], capture_output=True, text=True); "
+        "print(result.stdout, end='')",
+    )
+    trusted_git = tmp_path / "trusted-git"
+    fake_tool(trusted_git, "git", "print('trusted nested git')")
+
+    completed = _run(
+        ["gh"],
+        cwd=tmp_path,
+        environment={**os.environ, "PATH": f"{bridge}:{trusted_gh}:{trusted_git}"},
+        forbidden_roots=(selected,),
+    )
+
+    assert completed.stdout == "trusted nested git\n" and not marker.exists()
+
+
+def test_checkout_and_github_queries_refuse_selected_root_tools(tmp_path, monkeypatch):
+    selected = tmp_path / "selected"
+    hostile = selected / "bin"
+    marker = tmp_path / "hostile-ran"
+    body = f"from pathlib import Path; Path({str(marker)!r}).touch()"
+    fake_tool(hostile, "git", body)
+    fake_tool(hostile, "gh", body)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setenv("PATH", str(hostile))
+
+    with pytest.raises(RemekError, match="Git is required"):
+        workflows_module._git_checkout_containing(outside, (selected,))
+    with pytest.raises(RemekError, match="cannot run gh"):
+        verify_github_target(distribution_document()["target"], (selected,))
+    assert not marker.exists()
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    root = initialized(tmp_path)
+    with pytest.raises(RemekError, match="Git is required"):
+        scaffold_workspace(
+            root,
+            tmp_path / "scaffolded",
+            name="new-skill",
+            origin="imported",
+            source=Path("~/selected"),
+        )
+    assert not marker.exists()
+
+    trusted = tmp_path / "trusted"
+    observation = json.dumps(
+        {"nameWithOwner": "business-a/private-skills", "visibility": "PRIVATE"}
+    )
+    fake_tool(
+        trusted,
+        "gh",
+        f"print({observation!r})",
+    )
+    monkeypatch.setenv("PATH", str(trusted))
+    assert (
+        verify_github_target(distribution_document()["target"], (selected,))["visibility"]
+        == "PRIVATE"
+    )
+
+
+def test_external_tool_resolution_is_rechecked_for_each_root_set(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    fake_tool(first, "git", "import os; print('first|' + os.environ['PATH'])")
+    fake_tool(second, "git", "import os; print('second|' + os.environ['PATH'])")
+    environment = {**os.environ, "PATH": f"{first}:{second}"}
+
+    initial = _run(
+        ["git"],
+        cwd=tmp_path,
+        environment=environment,
+        forbidden_roots=(tmp_path / "unrelated",),
+    )
+    rechecked = _run(
+        ["git"],
+        cwd=tmp_path,
+        environment=environment,
+        forbidden_roots=(first,),
+    )
+
+    assert initial.stdout == f"first|{first}:{second}\n"
+    assert rechecked.stdout == f"second|{second}\n"
 
 
 def test_repair_changes_only_managed_files_and_preserves_foreign_data(tmp_path):
@@ -254,6 +455,11 @@ def test_scaffold_is_absent_private_and_outside_source(tmp_path, monkeypatch):  
     (workspace / "extra").unlink()
     manifest_path = workspace / "workspace.json"
     manifest = load_document(manifest_path, kind="workspace")
+    manifest["mode"] = []
+    write_input(manifest_path, manifest)
+    with pytest.raises(RemekError, match="invalid workspace"):
+        accept_plan(root, workspace)
+    manifest["mode"] = "new"
     manifest["base"]["candidate"] = "0" * 64
     write_input(manifest_path, manifest)
     with pytest.raises(RemekError, match="invalid workspace"):
@@ -326,6 +532,28 @@ def test_import_accept_retains_reviewed_upstream_manifest(tmp_path):
             "# Imported workflow\n\nFollow the reviewed upstream procedure.\n",
         )
     )
+    with pytest.raises(RemekError, match="directory basename"):
+        scaffold_workspace(
+            root,
+            tmp_path / "wrong-import-workspace",
+            name="imported-skill",
+            origin="imported",
+            source=source,
+        )
+    source = source.rename(tmp_path / "imported-skill")
+    reviewed = (source / "SKILL.md").read_bytes()
+    (source / "SKILL.md").write_text(
+        "---\nname: imported-skill\ndescription: [one]\n---\n# Imported workflow\n"
+    )
+    with pytest.raises(RemekError, match="outside remek's supported profile"):
+        scaffold_workspace(
+            root,
+            tmp_path / "unsupported-import-workspace",
+            name="imported-skill",
+            origin="imported",
+            source=source,
+        )
+    (source / "SKILL.md").write_bytes(reviewed)
     workspace = tmp_path / "import-workspace"
     scaffold_workspace(
         root,
@@ -517,7 +745,14 @@ def test_failed_evidence_persists_content_addressed(tmp_path, monkeypatch):
     apply(first)
     assert eval_record_plan(root, "deploy-safely", artifact).changes == ()
     evidence = root / ".remek" / "skills" / "deploy-safely" / "evidence"
-    assert len(list(evidence.glob("*.json"))) == 1
+    [receipt] = evidence.glob("*.json")
+    assert receipt.name == f"{hashlib.sha256(receipt.read_bytes()).hexdigest()}.json"
+    malformed = receipt.with_name("0" * 64 + ".json")
+    receipt.rename(malformed)
+    inspection = inspect_repository(root)
+    assert inspection.skill("deploy-safely")
+    finding = next(item for item in inspection.issues if item.code == "evidence.malformed")
+    assert finding.path == str(malformed.relative_to(root))
 
 
 def test_staging_release_is_unverified_and_verify_refuses(tmp_path, monkeypatch):
@@ -555,16 +790,36 @@ def test_release_apply_commit_verify_sequence(tmp_path, monkeypatch):
     git_commit(target, "exact release")
     result = release_verify(root, "org-private", target)
     assert result["verified"] is True
+    git(root, "branch", "-m", "review")
+    with pytest.raises(RemekError, match=r"actual source branch digest.*switch to the bound"):
+        release_verify(root, "org-private", target)
+    git(root, "branch", "-m", "main")
     wrong = "git@github.com:other/wrong.git"
     git(target, "remote", "set-url", "--add", "--push", "origin", wrong)
     with pytest.raises(RemekError, match="remote URLs"):
         release_verify(root, "org-private", target)
     git(target, "config", "--unset-all", "remote.origin.pushurl", check=False)
+    git(
+        target,
+        "remote",
+        "set-url",
+        "origin",
+        "https://github.com/business-a/private-skills.git",
+    )
+    with pytest.raises(RemekError, match=r"actual remote-binding digest.*manifest-bound"):
+        release_verify(root, "org-private", target)
+    git(
+        target,
+        "remote",
+        "set-url",
+        "origin",
+        "git@github.com:business-a/private-skills.git",
+    )
     monkeypatch.setattr(
         "remek_core.workflows.verify_github_target",
-        lambda target: {**verified_target(target), "visibility": "INTERNAL"},
+        lambda target, roots: {**verified_target(target, roots), "visibility": "INTERNAL"},
     )
-    with pytest.raises(RemekError, match="target verification changed"):
+    with pytest.raises(RemekError, match=r"actual target-lineage digest.*fresh mirror history"):
         release_verify(root, "org-private", target)
     monkeypatch.setattr("remek_core.workflows.verify_github_target", verified_target)
     git(target, "branch", "-m", "review")
@@ -573,6 +828,10 @@ def test_release_apply_commit_verify_sequence(tmp_path, monkeypatch):
     git(target, "branch", "-m", "main")
     (target / "untracked.txt").write_text("dirty")
     with pytest.raises(RemekError, match="dirty"):
+        release_verify(root, "org-private", target)
+    (target / "untracked.txt").unlink()
+    git(root, "commit", "--allow-empty", "-qm", "next source commit")
+    with pytest.raises(RemekError, match=r"actual source commit.*fresh release"):
         release_verify(root, "org-private", target)
 
 
@@ -590,11 +849,27 @@ def test_release_verify_binds_mirror_owned_files(tmp_path, monkeypatch):
 def test_release_verify_requires_current_readiness(tmp_path, monkeypatch):
     root, target = materialized_release(tmp_path, monkeypatch)
     git_commit(target, "release")
+    mirror_head = git(target, "rev-parse", "HEAD", capture_output=True, text=True).stdout.strip()
     for kind in ("evidence", "approvals"):
         for path in (root / ".remek/skills/deploy-safely" / kind).glob("*.json"):
             path.unlink()
-    with pytest.raises(RemekError, match=r"release\.(approval|evidence)"):
+    with pytest.raises(
+        RemekError,
+        match=r"release\.(approval|evidence) \.remek/skills/deploy-safely/"
+        r"(approvals|evidence).*source and mirror unchanged",
+    ):
+        release_plan(root, "org-private", mirror=target)
+    with pytest.raises(
+        RemekError,
+        match=r"release\.(approval|evidence) \.remek/skills/deploy-safely/"
+        r"(approvals|evidence).*source and mirror unchanged",
+    ):
         release_verify(root, "org-private", target)
+    assert git(target, "status", "--porcelain=v1", capture_output=True, text=True).stdout == ""
+    assert (
+        git(target, "rev-parse", "HEAD", capture_output=True, text=True).stdout.strip()
+        == mirror_head
+    )
 
 
 def test_release_verify_rejects_payload_tamper(tmp_path, monkeypatch):
@@ -655,6 +930,42 @@ def test_producer_mirror_verifier_checks_complete_inventory(tmp_path, monkeypatc
     assert run() == 2
 
 
+def test_verifier_rejects_hostile_json_without_traceback(tmp_path, monkeypatch):
+    _, target = materialized_release(tmp_path, monkeypatch)
+    manifest = target / "release-manifest.json"
+    canonical = manifest.read_bytes()
+    script = PROJECT / "tools/verify_release_manifest.py"
+
+    def assert_refused():
+        with pytest.raises(RemekError):
+            verify_materialized_release(target)
+        completed = subprocess.run(
+            [sys.executable, str(script), str(target)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert completed.returncode == 2 and completed.stderr == "invalid release mirror\n"
+
+    for malformed in ("audience", "mode"):
+        document = load_document(manifest, kind="release-manifest")
+        if malformed == "audience":
+            document["audience"] = []
+        else:
+            document["files"][0]["mode"] = {}
+        write_input(manifest, document)
+        assert_refused()
+        manifest.write_bytes(canonical)
+    manifest.write_bytes(
+        b'{"schema":"remek.1","kind":"release-manifest","value":'
+        + b"[" * 2000
+        + b"0"
+        + b"]" * 2000
+        + b"}"
+    )
+    assert_refused()
+
+
 def test_first_release_requires_adoption_for_existing_skills(tmp_path, monkeypatch):
     root, target = release_roots(tmp_path, monkeypatch)
     (target / "skills").mkdir()
@@ -699,7 +1010,7 @@ def test_managed_mirror_cannot_change_audience(tmp_path, monkeypatch):
     write_input(manifest_path, manifest)
     git_commit(target, "prepared public manifest")
 
-    def unexpected_target_verification(target):
+    def unexpected_target_verification(target, _forbidden_roots):
         assert target
         pytest.fail("audience refusal must precede live target verification")
 
@@ -709,7 +1020,8 @@ def test_managed_mirror_cannot_change_audience(tmp_path, monkeypatch):
         release_plan(root, "org-private", mirror=target)
 
 
-def test_release_history_binds_verified_target(tmp_path, monkeypatch):
+@pytest.mark.parametrize("field", ("branch", "nameWithOwner", "hostname"))
+def test_release_history_binds_complete_target_lineage(field, tmp_path, monkeypatch):
     root, target = materialized_release(tmp_path, monkeypatch)
     git_commit(target, "first target")
     command, marker = execution_sentinel(tmp_path)
@@ -728,13 +1040,56 @@ def test_release_history_binds_verified_target(tmp_path, monkeypatch):
     document = distribution_document()
     target_definition = document["target"]
     assert isinstance(target_definition, dict)
-    target_definition["nameWithOwner"] = "business-a/other-skills"
+    replacements = {
+        "branch": "review",
+        "nameWithOwner": "business-a/other-skills",
+        "hostname": "github.example.com",
+    }
+    target_definition[field] = replacements[field]
     apply(distribution_accept_plan(root, write_input(tmp_path / "moved.json", document)))
     record_approval(tmp_path, root)
     git_commit(root, "changed target")
-    git(target, "remote", "set-url", "origin", "git@github.com:business-a/other-skills.git")
+    if field == "branch":
+        git(target, "branch", "-m", "review")
+    else:
+        host = target_definition["hostname"]
+        repository = target_definition["nameWithOwner"]
+        git(target, "remote", "set-url", "origin", f"git@{host}:{repository}.git")
     with pytest.raises(RemekError, match="fresh mirror and history"):
         release_plan(root, "org-private", mirror=target)
+
+
+def test_target_lineage_excludes_remote_alias_and_transport(tmp_path, monkeypatch):
+    root, target = materialized_release(tmp_path, monkeypatch)
+    first = load_document(target / "release-manifest.json", kind="release-manifest")
+    git_commit(target, "first release")
+
+    document = distribution_document()
+    target_definition = document["target"]
+    assert isinstance(target_definition, dict)
+    target_definition["remote"] = "upstream"
+    apply(distribution_accept_plan(root, write_input(tmp_path / "alias.json", document)))
+    record_approval(tmp_path, root)
+    git_commit(root, "renamed remote alias")
+    git(target, "remote", "rename", "origin", "upstream")
+    apply(release_plan(root, "org-private", mirror=target))
+    aliased = load_document(target / "release-manifest.json", kind="release-manifest")
+    assert aliased["targetVerificationDigest"] == first["targetVerificationDigest"]
+    assert aliased["remoteBinding"] != first["remoteBinding"]
+    git_commit(target, "alias-bound release")
+
+    git(
+        target,
+        "remote",
+        "set-url",
+        "upstream",
+        "https://github.com/business-a/private-skills.git",
+    )
+    git(root, "commit", "--allow-empty", "-qm", "next source release")
+    apply(release_plan(root, "org-private", mirror=target))
+    transported = load_document(target / "release-manifest.json", kind="release-manifest")
+    assert transported["targetVerificationDigest"] == aliased["targetVerificationDigest"]
+    assert transported["remoteBinding"] != aliased["remoteBinding"]
 
 
 def test_prior_source_commit_must_be_an_ancestor(tmp_path, monkeypatch):
@@ -858,9 +1213,12 @@ def test_target_verification_fails_closed(
     monkeypatch.setattr("remek_core.workflows._run", run)
     if message:
         with pytest.raises(RemekError, match=message):
-            verify_github_target(distribution_document()["target"])
+            verify_github_target(distribution_document()["target"], (Path.cwd(),))
     else:
-        assert verify_github_target(distribution_document()["target"])["visibility"] == visibility
+        assert (
+            verify_github_target(distribution_document()["target"], (Path.cwd(),))["visibility"]
+            == visibility
+        )
         result.stdout = '{"x":' + "1" * 5000 + "}"
         with pytest.raises(RemekError, match="invalid JSON"):
-            verify_github_target(distribution_document()["target"])
+            verify_github_target(distribution_document()["target"], (Path.cwd(),))

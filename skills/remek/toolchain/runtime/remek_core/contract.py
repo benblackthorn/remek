@@ -86,6 +86,8 @@ def parse_document(data: bytes, *, kind: str) -> JSONObject:
         )
     except Error:
         raise
+    except RecursionError:
+        raise Error("invalid JSON nesting") from None
     except json.JSONDecodeError as exc:
         message = f"invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
         raise Error(message) from None
