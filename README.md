@@ -1,80 +1,118 @@
 # remek
 
-**Your skills are an asset. Govern them like one.**
+**Governed release management for Agent Skills.**
 
-remek is the local-first governed source and release layer for reviewed,
-file-based [Agent Skills](https://agentskills.io/). It sits between authoring
-and publishing.
+remek is a local-first governance toolkit for **turning completed
+[Agent Skills](https://agentskills.io/) into reviewed, releasable artifacts**.
 
-- Agent Skills defines the portable skill artifact.
-- remek governs which exact bytes are ready for which audience and target.
-- Agents author and evaluate, Git transports, and installers place copies.
+It sits between authoring and publishing.
+
+- **Agent Skills** defines the portable skill artifact.
+- **remek** governs which exact skill bytes are approved for release, on what
+  evidence, for which audience, and to which distribution target.
+- **Hosts, installers, evaluation harnesses, and catalogs** remain separate
+  systems.
+
+In practical terms, remek helps you take a skill that already exists, bind it to
+exact identity and provenance, review evidence against those exact bytes,
+approve a release, and prepare a controlled projection for the right mirror or
+audience.
+
+---
 
 ## Why remek exists
 
-An owner or team shipping skills eventually needs answers that a repository,
-installer, or one-time scan cannot provide alone:
+The Agent Skills ecosystem is gaining better portability, scanners, evaluation
+harnesses, and distribution paths. What is still under-served is
+**governance**.
 
-- What exact skill bytes are under review?
-- What changed since the last accepted version?
-- Which evaluation results apply to this candidate, and are they still current?
-- Who declared approval for this release context?
+An owner or team shipping skills eventually needs to answer questions like:
+
+- What exact skill bytes are we talking about?
+- What changed since the last accepted release?
+- Which scan or evaluation results apply to those exact bytes?
+- Are those results still current or now stale?
+- Who declared approval for the release?
 - Is the release intended for a private audience or the public?
-- Does the committed release mirror still match the approved projection?
+- Does the committed release mirror still match the approved source?
 
-If Agent Skills answers **“what is a skill?”**, remek answers **“which exact
-skill release is ready for this audience, and why?”**
+remek is built around those questions.
 
-Use remek when mistakes are costly: a private skill library, shared team
-workflows, client work under NDA, high-stakes procedures, or selected private
-and public releases. Cost matters more than contributor count. If you only want
-to install an unrelated third-party skill, use an installer directly.
+---
 
-## How remek works
+## What remek is
 
-1. **Exact-byte identity.** A candidate is a canonical UTF-8 file tree. Its
-   digest identifies the bytes under review; digests are identities, not
-   signatures.
-2. **Explicit provenance and policy.** Retained source, upstream identity,
-   rights, lifecycle, exposure, and case sets remain in the governed source.
-3. **Evidence bound to its subject.** Evidence records the candidate, cases,
-   routing catalog, evaluator profile, trials, run-configuration digest, results,
-   and one private report digest. Relevant changes make it stale.
-4. **Approval separate from evidence.** Observations inform a release decision;
-   they do not make it. Approval binds a reviewer declaration to the exact
-   candidate, provenance, distribution, target, exceptions, and date.
-5. **One authoritative source.** Consumer mirrors receive an approved one-way
-   projection. They never become a second governed source.
+remek is a **governance kernel** for Agent Skills.
 
-```text
-authoring — your agent's own workflow
-      │  completed bytes, a design, or a reviewed import
-      ▼
-governed source — candidate, provenance, policy, cases, evidence, approval
-      │  exact reviewed plan
-      ▼
-release mirror — approved skills/ + manifest, no private governance records
-      │  separate Git push, publication, and installation
-      ▼
-consumer copies — owned by installers, not remek
-```
+Today, the repository is designed around a few core ideas:
 
-Feedback returns as an issue or patch proposal. Reproduce accepted changes in
-the governed source, then prove, approve, and release them again.
+1. **Exact-byte identity.** A governed candidate is identified by the exact
+   bytes under review. Digests are identities, not signatures.
 
-## Review every durable change before it lands
+2. **Provenance matters.** Retained source, upstream identity, and rights stay
+   with the governed skill. Release manifests separately bind Git, target,
+   remote, and projected payload state.
 
-Only `scaffold` mutates directly, creating an owner-only disposable workspace
-outside Git. Every durable source or mirror mutation follows:
+3. **Evidence is bound to the candidate.** Release evidence is tied to the
+   exact candidate, cases, routing catalog, evaluator profile, trials, and
+   distribution context it covers.
 
-```text
-prepare → save plan → inspect exact diff → explain paths and effects
-→ owner approval → apply → check
-```
+4. **Staleness is explicit.** If bound inputs change, affected evidence becomes
+   stale. `check` reports it; release refuses it.
 
-`apply` reconstructs intent from current inputs and requires an exact match. A
-changed bound input refuses instead of landing. This refusal transcript is
-literal CLI output and is checked byte-for-byte by the repository suite:
+5. **Approval is separate from evidence generation.** Evaluations and other
+   observations are inputs. They are not the release decision. The reviewer
+   field is a declaration, not authentication or receipt attestation.
+
+6. **Source and mirrors have different roles.** The governed source remains
+   authoritative. Consumer mirrors receive approved one-way projections.
+
+7. **Release projection is intentional.** remek prepares only what is eligible
+   for a given audience rather than blindly copying repository state.
+
+---
+
+## What remek does today
+
+The current repository supports a full local governance workflow for skills.
+
+### Govern completed work
+
+remek is intentionally biased toward **capturing already-completed work** and
+turning it into a governed skill repository.
+
+It supports workflows such as:
+
+- initializing a governed source;
+- scaffolding captured work, a design, or a reviewed import;
+- accepting complete reviewed bytes without inventing missing content;
+- revising lifecycle, exposure, distributions, and disclosure through plans;
+- checking, repairing, retiring, removing, and updating governed state.
+
+`scaffold` creates a disposable owner-only workspace. A human or agent
+completes the candidate before remek accepts it.
+
+### Preserve exact identity and provenance
+
+remek tracks the exact candidate tree being reviewed and retains its source,
+upstream identity, rights, policy, and cases. Release manifests separately bind
+the source commit, branch, audience, target lineage, remote transport, prior
+mirror state, selected paths, modes, and hashes.
+
+### Generate deterministic plans before mutation
+
+Only `scaffold` mutates directly. Durable source and mirror changes are saved
+as exact plans, inspected, explained, approved by the owner, and then applied.
+
+That gives remek a few important safety properties:
+
+- proposed changes can be reviewed before apply;
+- changed bound inputs refuse before execution;
+- cooperative local failures can restore the prior state;
+- residue is surfaced instead of silently ignored.
+
+This refusal transcript is literal CLI output and checked byte-for-byte by the
+repository tests:
 
 ```console
 $ ./remek apply …/accept.json
@@ -82,261 +120,250 @@ apply: plan differs at plan.bindings.candidate; nothing applied; recreate and re
   ERROR plan.stale: plan differs at plan.bindings.candidate; nothing applied; recreate and review
 ```
 
-Transactions restore cooperative local failures when possible and report
-whether state stayed unchanged, changed, was restored, or has named residue.
 There is no journal or guarantee for process death, power loss, hostile writers,
 or network storage.
 
-## Install
+### Bind release evidence to the release subject
 
-Install remek as a user-scoped Agent Skill. GitHub CLI 2.90+ will ask which
-agent should receive it:
+An agent, test suite, or external harness runs the trials; remek runs none.
+Evidence is tied to inputs such as:
+
+- candidate and case-set digests;
+- evaluator identity, profile, and run configuration;
+- routing catalog and intended distribution;
+- ordered trial outcomes and thresholds;
+- one private report digest.
+
+Changing the skill or a material evaluation input invalidates affected proof.
+Evidence does not prove evaluator honesty or freeze live APIs, databases, MCP
+sources, dynamic resources, or host caches.
+
+### Support check, doctor, and repair workflows
+
+The repository can inspect repository health, detect drift or malformed
+records, diagnose the trusted toolchain, and plan bounded mechanical repairs
+without rewriting authored intent.
+
+### Prepare controlled release projections
+
+remek can prepare a managed mirror projection or an unverified staging-only
+projection for an explicit distribution.
+
+A managed mirror receives only approved `skills/` and
+`release-manifest.json`, never private governance records. The manifest binds
+paths, modes, hashes, lineage, target, and private context as digests.
+Source-side verification rechecks the clean committed mirror, governed source,
+manifest-bound remote and branch, and authenticated GitHub target.
+
+The standalone manifest verifier can check mirror payload integrity without the
+private source; it cannot reconstruct private evidence or approval. Staging-only
+output is unverified and never push-ready.
+
+Release requires `ready` lifecycle, audience-eligible exposure, complete
+rights, disclosure policy, current evidence and approval, clean committed Git,
+the expected branch and audience, credential-free remotes, and matching
+authenticated target visibility. Public release also requires separate history,
+blocked private disclosure, `public-eligible` policy, irreversibility review,
+and an exact candidate/provenance license match. Credentials cannot be excepted.
+
+### Preserve last-known-good behavior through refusal
+
+If a candidate loses required proof or no longer satisfies release readiness,
+remek favors refusing the new release over silently accepting something weaker.
+A pre-mutation blocker leaves the target unchanged. If mutation begins and a
+cooperative local failure occurs, remek attempts exact restoration and reports
+the actual final state, including any residue.
+
+---
+
+## What remek does **not** do
+
+remek is **not** trying to be the entire Agent Skills stack.
+
+It is not:
+
+- an Agent Skills authoring environment;
+- a hosted catalog;
+- an installer or package manager;
+- a general-purpose scanner;
+- a benchmark runner or online evaluation service;
+- a runtime permission engine;
+- a skill execution host;
+- a secret manager or signing service;
+- a generic CI/CD platform;
+- an autonomous skill-improvement loop.
+
+remek never creates repositories, runs candidate scripts, installs consumer
+copies, commits, pushes, tags, publishes, or changes repository visibility.
+It does perform deterministic credential and disclosure screening within its
+governed boundary. For outputs from separate systems, remek asks:
+
+> Which exact bytes do these claims apply to, and were those bytes approved for
+> this release?
+
+---
+
+## The workflow, at a glance
+
+A simple way to think about remek is this:
+
+1. **A skill exists** — written by a human or agent, designed from a reviewed
+   brief, or imported from prior work.
+2. **remek governs it** — the exact candidate, provenance, policy, and cases are
+   accepted through a reviewed plan.
+3. **A private source may stop here** — `draft` and `source-only` are valid;
+   evidence and approval become required before releasing a selected
+   distribution.
+4. **Evidence is recorded** — external evaluations or observations are attached
+   to the exact candidate and run context.
+5. **A release is approved** — for a particular audience, distribution, target,
+   and set of exceptions.
+6. **A projection is prepared and verified** — as a controlled mirror with a
+   release manifest.
+7. **Publication remains separate** — Git, GitHub, and installers transport or
+   place the verified bytes only after separate authorization.
+
+That is the category remek occupies.
+
+---
+
+## Install
 
 ```bash
 gh skill install benblackthorn/remek remek --scope user
 ```
 
-Alternatively, run `npx skills add benblackthorn/remek -g`. Non-interactive
-`gh` callers should detect the active host and pass `--agent <host>` because the
-default is `github-copilot`. Use `gh` by default for private distributions;
-`npx skills` does not provide a complete private-repository contract.
+This installs a user-scoped skill for your coding agent, not a shell command.
+Then ask:
 
-This installs a skill for your coding agent, not a shell command. Ask the agent
-to use remek. The installer owns that copy; update it with
-`gh skill update remek`, or `npx skills update remek` if npx installed it.
-remek has no telemetry. [GitHub CLI](https://cli.github.com/telemetry) and
-[`npx skills`](https://github.com/vercel-labs/skills/blob/main/README.md#telemetry)
-document theirs.
+> Set up my private governed skills source with remek. Discover my existing
+> conventions and repositories first, then confirm the name and absolute path
+> before creating anything.
 
-## Start a private governed source
+You can also run `npx skills add benblackthorn/remek -g`. Use `gh` by default
+for private distributions; `npx skills` does not provide a complete
+private-repository contract. The
+[workflow reference](skills/remek/references/workflows.md) contains exact
+sequences.
 
-For one owner, one private governed source is normally enough. Same-owner
-machines clone or pull it. Use a distinct private consumer mirror for a team
-audience, and a distinct public mirror with separate history for selected
-public skills.
+---
 
-Start by asking your agent:
+## Current command and workflow surface
 
-> Set up my governed skills source with remek. Discover my existing conventions
-> and repositories first. If no setup exists, ask whether any skills may become
-> public, then confirm the repository name and absolute path before creating it.
+The CLI stays centered on governance operations:
 
-Your agent resolves the installed entrypoint. The manual sequence below keeps
-the review plan outside the source being initialized:
+- **`init`**, **`scaffold`**, and **`accept`** govern completed captured,
+  designed, imported, or revised work.
+- **`distribution`**, **`disclosure`**, **`retire`**, and **`remove`**
+  govern release context and lifecycle.
+- **`check`**, **`repair`**, **`doctor`**, and **`audit`** inspect or
+  mechanically repair state without executing candidate content.
+- **`eval`** and **`approve`** prepare or record external evidence and a
+  separate reviewer declaration.
+- **`release`** plans a managed mirror or staging-only projection and verifies
+  a clean committed managed mirror.
+- **`plan`** and **`apply`** display and apply one unchanged reviewed plan.
+- **`update`** replaces the embedded toolchain from a reviewed remek bundle.
 
-```bash
-remek_cli=/absolute/path/to/installed/remek/scripts/cli.py
+Run `./remek --help` or `./remek COMMAND --help` for exact arguments. Put
+global `--root` and `--json` before the command.
 
-python3 -I -S -B "$remek_cli" init /absolute/path/to/skills-home --output /absolute/path/to/review/init.json
-python3 -I -S -B "$remek_cli" plan show /absolute/path/to/review/init.json
-# Explain every path and effect, then wait for owner approval.
-python3 -I -S -B "$remek_cli" apply /absolute/path/to/review/init.json
-cd /absolute/path/to/skills-home
-./remek check
-```
+---
 
-`init` adds governance, a pinned toolchain, and a repository-local `./remek`
-wrapper. It does not create Git history or a GitHub repository. Foreign files
-are preserved, and a populated `skills/` makes `init` refuse rather than claim
-existing work silently. `init --project` intentionally governs only
-`.agents/skills/` in one project.
+## Relationship to Agent Skills
 
-For a private library, `install → initialize → capture or import → check` is a
-complete outcome. Git history and a private remote are separate, explicitly
-authorized steps. Evidence and approval are not required until you prepare a
-distribution.
+remek does not replace the Agent Skills format. It assumes Agent Skills already
+defines the artifact shape and portability contract.
 
-## Capture, design, import, or revise a skill
+If Agent Skills answers **“what is a skill?”**, remek answers **“which exact
+skill release should be trusted for this audience, and why?”**
 
-remek governs completed work; it does not write the procedure. Your authoring
-workflow hands it one of three inputs:
+---
 
-| Origin | Input |
-| --- | --- |
-| `captured` | Completed owned work that should become a skill |
-| `designed` | A reviewed design brief an agent completes into a skill |
-| `imported` | An existing reviewed skill directory |
+## Security and trust model
 
-After completing real work, “Capture this as a skill with remek” is enough. Your
-agent writes the confirmed procedure to one reviewed file, then uses it as the
-retained source:
+remek takes a narrow, defensive approach.
 
-```bash
-./remek scaffold \
-  --name deploy-safely \
-  --origin captured \
-  --source /absolute/path/to/completed-procedure.md \
-  --workspace /absolute/path/outside-git/deploy-safely
-# Your agent completes the candidate, provenance, policy, and both case sets.
-./remek accept --workspace /absolute/path/outside-git/deploy-safely --output /absolute/path/to/review/accept.json
-./remek plan show /absolute/path/to/review/accept.json
-# Explain every path and effect, then wait for owner approval.
-./remek apply /absolute/path/to/review/accept.json
-./remek check
-```
+At a high level, the repository is designed to resist governance failures such
+as:
 
-The agent completes the candidate, provenance, policy, and both case sets in the
-workspace. `accept` validates those complete reviewed bytes and invents nothing.
-New skills enter as `draft` and `source-only`; promotion is a separate reviewed
-change. Revise with:
+- releasing bytes that differ from what was reviewed;
+- treating stale evidence as current at release;
+- allowing mirror state to become the de facto source of truth;
+- silently absorbing bound Git or filesystem drift and hostile structure;
+- mixing private governance state into public payloads;
+- relying on mutable context instead of explicit subject identity.
 
-```bash
-./remek scaffold --skill deploy-safely --workspace /absolute/path/outside-git/deploy-safely-v2
-```
+Candidate content never executes. The shipped runtime is Python 3.11+,
+standard-library only, and scoped to verified POSIX local storage on macOS or
+native Linux. Ordinary workflows are offline; release alone authenticates the
+GitHub target, while bounded local Git queries are used where required.
 
-If the governed base changes after scaffolding, `accept` refuses; scaffold
-again. Candidate changes return the skill to `draft`, cannot raise exposure in
-the same step, and make existing evidence and approval stale.
+Governed payloads are bounded UTF-8 regular-file trees. Binary assets, links,
+special files, Windows, WSL, and network filesystems are unsupported. `audit`
+checks structural compatibility only, not benign intent, script safety,
+upstream trust, provenance, or host execution safety.
 
-For an existing skill, start with:
+The loaded bundle, caller-selected interpreter, OS, intent, selected roots, and
+external ancestors remain trusted. Manifests and digests provide identity, not
+signatures, and records cannot prove their author was honest. The
+[threat model](docs/threat-model.md) states the exact boundary and limitations.
 
-```bash
-./remek audit /absolute/path/to/existing-skill
-./remek scaffold \
-  --name existing-skill \
-  --origin imported \
-  --source /absolute/path/to/existing-skill \
-  --workspace /absolute/path/outside-git/existing-skill-import
-```
+---
 
-Then complete the workspace and use the same accept cycle. `audit` reads an
-untrusted payload without executing it and checks structural compatibility, not
-intent, script safety, upstream trust, or host safety. The directory basename
-and `SKILL.md` name must match `--name`. First-time in-place migration requires
-a byte-verified external copy and per-skill review because `init` never claims a
-populated `skills/`. Follow the
-[private-source workflow](skills/remek/references/workflows.md#private-source)
-for the complete sequence.
+## Design principles
 
-## Evidence and approval
+- **Local-first** — no hosted control plane is required.
+- **Deterministic** — governed mutations should be understandable and
+  reproducible.
+- **Review before mutation** — plan first, then apply.
+- **Separate evidence from decision** — observations inform approval; they do
+  not replace it.
+- **Do not over-trust downstream systems** — mirrors, catalogs, and installers
+  do not substitute for source governance.
+- **Keep the source authoritative** — release targets are projections, not
+  independent truth.
+- **Favor conservative release behavior** — if proof is stale or readiness
+  fails, refuse the new release.
 
-Models, credentials, hosts, budgets, graders, and raw output stay outside remek.
-An agent, test suite, or harness runs the trials. `eval plan` describes what to
-test; `eval record` stores bounded results and a digest of the private report.
-Failed receipts persist. Release evidence forbids `smoke` claims, and manual-host
-or external profiles require at least three trials per case.
+---
 
-Evidence covers the exact governed bytes and recorded run configuration. It
-does not prove evaluator honesty or freeze live APIs, databases, MCP sources,
-dynamic resources, or host caches. Material dynamic inputs belong in the
-private report by digest or with a stated freshness limit.
+## Who remek is for
 
-Approval is an independent gate. Its `reviewer` field is a declaration, not
-authentication, separation-of-duties proof, or attestation of a particular
-receipt. Approval grants no runtime, tool, or script permission; the active host
-owns those controls.
+remek is for owners and teams who need more rigor than:
 
-Sharing starts with a byte-identical revision that changes policy to `ready`
-and `private-only` or `public-eligible`, with a fresh reason, followed by the
-same accept cycle. The
-[quality-and-distribution workflow](skills/remek/references/workflows.md#quality-and-distribution)
-owns distribution, evidence-recording, and approval details.
+- a bare Git repository;
+- a simple copy-to-catalog step;
+- or a one-time scan attached to a release note.
 
-## Release
+It is especially relevant when you need to manage:
 
-```text
-author or import → accept → evaluate externally → record evidence
-→ approve → stage and verify release → publish separately through Git/GitHub
-```
+- a trustworthy private skill library;
+- private versus public release boundaries;
+- controlled downstream targets;
+- repeatable release approval;
+- evidence freshness;
+- and strong correspondence between reviewed and released bytes.
 
-A distribution names an audience, skill allowlist, GitHub target, delivery
-methods, and evidence policy. Once every readiness, disclosure, Git, and target
-gate passes—including current evidence and approval—remek prepares a managed
-mirror projection. The
-[release workflow](skills/remek/references/workflows.md#release) owns the exact
-Git and push boundaries; the complete pre-push sequence is:
+It is a working, opinionated toolkit, intentionally narrow and not an ecosystem
+standard. The trusted core stays small enough to reason about.
 
-```bash
-./remek check --release team
-./remek release team --mirror /absolute/path/to/mirror --output /absolute/path/to/review/release.json
-./remek plan show /absolute/path/to/review/release.json
-# Explain every path and effect, then wait for owner approval.
-./remek apply /absolute/path/to/review/release.json
-git -c core.fsmonitor=false -C /absolute/path/to/mirror add -A -- skills release-manifest.json
-git --no-pager -c core.fsmonitor=false -C /absolute/path/to/mirror diff --cached --no-ext-diff --no-textconv -- skills release-manifest.json
-git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C /absolute/path/to/mirror commit --no-gpg-sign -m "Release team"
-(cd /absolute/path/to/mirror && gh skill publish --dry-run)
-./remek release verify team --mirror /absolute/path/to/mirror
-```
-
-remek never commits or pushes. A push happens only after verification and needs
-separate authorization. Staging-only output is unverified and never push-ready.
-
-The mirror receives only approved `skills/` and `release-manifest.json`. The
-manifest binds paths, modes, hashes, lineage, target, and private context as
-digests. Source-side `release verify` rechecks the clean committed mirror,
-governed source, manifest-bound remote, branch, and authenticated GitHub target.
-The repository's [standalone manifest verifier](tools/verify_release_manifest.py)
-can validate mirror payload integrity without the private source, but it cannot
-reconstruct private evidence or approval.
-
-Public release additionally requires separate history, blocked private
-disclosure, `public-eligible` policy, an approval acknowledging irreversibility,
-public target visibility, and a nonempty candidate `license` exactly matching
-reviewed provenance. Credential findings cannot be excepted.
-
-## CLI reference
-
-Run `./remek --help` or `./remek COMMAND --help` for exact arguments. Put global
-`--root` and `--json` before the command.
-
-| Command | Outcome |
-| --- | --- |
-| `init` | Initialize or wire a governed source and pinned wrapper. |
-| `scaffold` | Create a disposable workspace for captured, designed, imported, or revised work. |
-| `accept` | Validate a complete workspace and save an exact acceptance plan. |
-| `distribution` / `disclosure` | Govern release targets, audiences, delivery, evidence policy, and private-material rules. |
-| `retire` / `remove` | Retire work with history or remove an eligible unselected skill. |
-| `check` | Run deterministic offline repository, skill, and release-readiness contracts. |
-| `repair` | Plan bounded mechanical corrections without rewriting authored intent. |
-| `update` | Replace the embedded toolchain from one reviewed installed remek bundle. |
-| `eval` | Prepare or record evidence produced by external evaluators; remek runs none. |
-| `approve` | Prepare or record reviewer approval for an exact release context. |
-| `release` / `release verify` | Plan a managed mirror or staging-only projection; only a committed managed mirror can pass verification. |
-| `plan show` | Reconstruct and display an exact bounded change before mutation. |
-| `audit` | Inspect an untrusted skill payload read-only without executing it. |
-| `doctor` | Diagnose the governed source and trusted toolchain. |
-| `apply` | Apply one unchanged reviewed plan; refuse drift or replay. |
-
-## What remek does not do
-
-remek is not an authoring environment, hosted catalog, installer, package
-manager, general-purpose scanner, model or benchmark runner, runtime permission
-engine, skill host, secret manager, signing service, CI/CD platform, or
-autonomous improvement loop. It never creates repositories, runs candidate
-scripts, installs consumer copies, commits, pushes, tags, publishes, or changes
-repository visibility.
-
-Source-only exposure is governance state, not installation state. Runtime-only
-code, live dynamic resources, and remote MCP sources enter governance only when
-their relevant content is materialized as a reviewed file snapshot. remek
-governs that snapshot, not the live source or cache.
-
-## Security and supported environment
-
-Repository inputs are hostile after a trusted remek bundle and caller-selected
-Python interpreter load. remek rejects unsafe filesystem objects, unbounded
-input, hostile executables and Git features, and stale plans. It detects stale
-evidence and mirror drift; release refuses them. Candidate content never
-executes. The [threat model](docs/threat-model.md) states the exact trusted inputs
-and honest limitations.
-
-Supported execution is Python 3.11+ on macOS or native Linux with verified
-POSIX local storage. The runtime uses only the standard library. Normal
-workflows are offline; release alone authenticates the GitHub target. Local
-bounded Git queries are used where required. Git is required for scaffold,
-staging, and release, and GitHub CLI for verified targets. Payloads are bounded
-UTF-8 text. Binary assets, links, special files, Windows, WSL, and network
-filesystems are unsupported.
+---
 
 ## Documentation and contributing
 
-- [remek.dev](https://remek.dev/): short tour and quick start
-- [Workflow reference](skills/remek/references/workflows.md): executable sequences and record shapes
-- [Design](docs/design.md): outcomes, ownership, and architecture
-- [Contracts](docs/contracts.md): canonical formats, limits, and refusal semantics
-- [Threat model](docs/threat-model.md): trusted inputs, hostile bytes, and unsupported guarantees
-- [Contributing](.github/CONTRIBUTING.md) and [security policy](.github/SECURITY.md)
+For exact workflows and the implementation contract, see:
+
+- [remek.dev](https://remek.dev/) — short tour and quick start
+- [Workflow reference](skills/remek/references/workflows.md) — executable
+  sequences and record shapes
+- [Design](docs/design.md) — outcomes, ownership, and architecture
+- [Contracts](docs/contracts.md) — canonical formats, limits, and refusal
+  semantics
+- [Threat model](docs/threat-model.md) — trusted inputs, hostile bytes, and
+  unsupported guarantees
+- [Contributing](.github/CONTRIBUTING.md) and
+  [security policy](.github/SECURITY.md)
 
 ## Skills
 
