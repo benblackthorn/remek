@@ -26,7 +26,8 @@ Lifecycle (`draft`, `ready`, `retired`) and exposure (`source-only`,
 `private-only`, `public-eligible`) are independent; distributions are allowlists.
 Candidate changes force draft, cannot raise exposure, and stale proof. Promotion
 keeps bytes; selected skills cannot be removed. Failed proof persists without
-satisfying readiness.
+satisfying readiness. Immutable records are validated intrinsically before
+current-state applicability; one malformed record does not erase its skill.
 
 ## Mutation protocol
 
@@ -36,8 +37,10 @@ residue; there is no journal or power-loss claim.
 
 ## Release boundary
 
-Targets bind GitHub identity, branch, visibility, and committed bytes. Audience
-is history-immutable; delivery is not access. Verification rechecks before push.
+Targets bind GitHub identity, branch, expected and observed visibility, and
+committed bytes. Historical target identity excludes the local remote alias,
+which remains approval context and per-release remote binding. Audience is
+history-immutable; delivery is not access. Verification rechecks before push.
 Installer metadata is outside identity; the pinned entrypoint inventories twice.
 
 ## Constraints

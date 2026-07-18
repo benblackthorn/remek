@@ -65,6 +65,11 @@ def test_depth_and_value_count_are_bounded():
         parse_document(document(value=value), kind="test")
     with pytest.raises(RemekError, match="values"):
         parse_document(document(values=list(range(5000))), kind="test")
+    deeply_nested = (
+        b'{"schema":"remek.1","kind":"test","value":' + b"[" * 2000 + b"0" + b"]" * 2000 + b"}"
+    )
+    with pytest.raises(RemekError, match=r"nesting|depth"):
+        parse_document(deeply_nested, kind="test")
 
 
 def test_load_document_refuses_symlink(tmp_path):

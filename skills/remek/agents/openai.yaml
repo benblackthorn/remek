@@ -1,4 +1,4 @@
 interface:
   display_name: "remek"
   short_description: "Govern and release Agent Skills you own."
-  default_prompt: "Complete my skills workflow: use compatible authoring, remek governance and release, then the proper owner for adjacent work."
+  default_prompt: "Help me set up or continue my governed skills workflow. Inspect what exists, use the right authoring workflow, govern the result with remek, and continue any Git or installation steps I request."

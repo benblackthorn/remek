@@ -464,7 +464,11 @@ def apply_changes(  # noqa: PLR0912, PLR0915
                         exit_code=130,
                     ) from None
                 if isinstance(exc, Error):
-                    raise
+                    raise _transaction_error(
+                        exc.code,
+                        f"{exc.message}; prior state was restored",
+                        changed=False,
+                    ) from None
                 raise Error(
                     "transaction.failed", f"mutation failed and prior state was restored: {exc}"
                 ) from None

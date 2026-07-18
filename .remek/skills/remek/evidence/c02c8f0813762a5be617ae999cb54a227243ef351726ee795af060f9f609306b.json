@@ -1,0 +1,75 @@
+{
+  "artifacts": [
+    {
+      "digest": "deb5ebf65de223eae45a325be3c098ebf1f67cfd62ce891de60ab45bd0e9562d",
+      "label": "evaluation-report"
+    }
+  ],
+  "candidate": "7327f2bc7cd27fc22f3f5cde2eb0deb23c5b34e9cfe9bb11a97cb47213ba83a6",
+  "caseSetDigest": "d2eb8c1b887382b4ffb22f386ac5098262fa8b5412c24222740e6bb4548af159",
+  "distribution": null,
+  "evidenceKind": "routing",
+  "kind": "eval-receipt",
+  "profile": {
+    "claim": "regression",
+    "kind": "manual-host",
+    "minimumPassCount": 3,
+    "name": "Codex desktop gpt-5.6-sol ultra",
+    "runConfigDigest": "789ed9b3acb2e6ff2180698dc7fc3583cafb1aae4ed78b1c12cf0ca1249e29a7",
+    "trialCount": 3,
+    "version": "gpt-5.6-sol / Codex 26.715.21425+5488"
+  },
+  "results": [
+    {
+      "caseId": "init",
+      "passCount": 3
+    },
+    {
+      "caseId": "capture",
+      "passCount": 3
+    },
+    {
+      "caseId": "revise",
+      "passCount": 3
+    },
+    {
+      "caseId": "evidence",
+      "passCount": 3
+    },
+    {
+      "caseId": "release",
+      "passCount": 3
+    },
+    {
+      "caseId": "audit",
+      "passCount": 3
+    },
+    {
+      "caseId": "install",
+      "passCount": 3
+    },
+    {
+      "caseId": "author",
+      "passCount": 3
+    },
+    {
+      "caseId": "evaluate",
+      "passCount": 3
+    },
+    {
+      "caseId": "publish",
+      "passCount": 3
+    },
+    {
+      "caseId": "git-release",
+      "passCount": 3
+    },
+    {
+      "caseId": "consumers",
+      "passCount": 3
+    }
+  ],
+  "routingCatalogDigest": "95268f2c0b9b693126f92efc6596afc5f46a226dec0619574fa7ec8832beb29a",
+  "schema": "remek.1",
+  "skill": "remek"
+}

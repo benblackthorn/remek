@@ -13,6 +13,7 @@ from remek_core.evaluation import (
     receipt_status,
     routing_catalog_digest,
     validate_evidence,
+    validate_evidence_intrinsic,
 )
 from remek_core.model import RemekError
 
@@ -148,6 +149,58 @@ def test_receipt_keeps_trial_details_in_external_report():
     document["results"][0]["observed"] = "raw detail"
     with pytest.raises(RemekError, match="case order"):
         validate_evidence(document, plan)
+
+
+def test_intrinsic_evidence_rejects_invalid_results_artifacts_and_keys():
+    plan = evidence_plan()
+    baseline = completed(plan)
+    invalid = []
+    extra = copy.deepcopy(baseline)
+    extra["unexpected"] = True
+    invalid.append(extra)
+    repeated = copy.deepcopy(baseline)
+    repeated["results"][1]["caseId"] = repeated["results"][0]["caseId"]
+    invalid.append(repeated)
+    overflow = copy.deepcopy(baseline)
+    overflow["results"][0]["passCount"] = 4
+    invalid.append(overflow)
+    artifacts = copy.deepcopy(baseline)
+    artifacts["artifacts"] = [
+        {"label": "evaluation-report", "digest": "d" * 64},
+        {"label": "evaluation-report", "digest": "e" * 64},
+    ]
+    invalid.append(artifacts)
+
+    for document in invalid:
+        with pytest.raises(RemekError):
+            validate_evidence_intrinsic(document)
+
+
+def test_contextual_evidence_distinguishes_order_stale_failed_and_current():
+    plan = evidence_plan()
+    current = completed(plan)
+    assert validate_evidence(current, plan)[1] is True
+
+    failed = copy.deepcopy(current)
+    failed["results"][0]["passCount"] = 0
+    assert validate_evidence(failed, plan)[1] is False
+
+    reordered = copy.deepcopy(current)
+    reordered["results"].reverse()
+    assert validate_evidence_intrinsic(reordered)[1] is True
+    with pytest.raises(RemekError, match="case order"):
+        validate_evidence(reordered, plan)
+
+    truncated = copy.deepcopy(current)
+    truncated["results"].pop()
+    assert validate_evidence_intrinsic(truncated)[1] is True
+    with pytest.raises(RemekError, match="result count differs"):
+        validate_evidence(truncated, plan)
+
+    stale = copy.deepcopy(current)
+    stale["candidate"] = "0" * 64
+    with pytest.raises(RemekError, match="bound inputs differ"):
+        validate_evidence(stale, plan)
 
 
 def test_profile_rigor_and_report_are_required():

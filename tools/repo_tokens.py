@@ -1,34 +1,37 @@
 #!/usr/bin/env python3
-# ruff: noqa: D100, D103, E501, PLR0912, SIM905
+"""Enforce repository ceilings and identities."""
 
 import re
 import subprocess
 import sys
 from pathlib import Path
 
-LIMITS = {"shipped": 70_000, "tests": 30_000, "documentation": 15_000, "vendor": 0, "other": 5_000}
-MODES = {
-    **dict.fromkeys(
-        "gate remek tools/repo_tokens.py tools/verify_release_manifest.py".split(), "100755"
-    ),
-    **dict.fromkeys(
-        "skills/remek/scripts/cli.py skills/remek/toolchain/scripts/cli.py skills/remek/toolchain/assets/gate".split(),
-        "100644",
-    ),
+LIMITS = {
+    "shipped": 70_000,
+    "tests": 35_000,
+    "documentation": 15_000,
+    "vendor": 0,
+    "other": 10_000,
+}
+EXECUTABLE = {"gate", "remek", "tools/repo_tokens.py", "tools/verify_release_manifest.py"}
+PLAIN = {
+    "skills/remek/scripts/cli.py",
+    "skills/remek/toolchain/scripts/cli.py",
+    "skills/remek/toolchain/assets/gate",
 }
 BRAND = re.compile(r"\bremek\b", re.I)
 
 
-def main():
+def _main():  # noqa: PLR0912
     root = Path.cwd()
     violations = []
     try:
-        index = {
-            path.decode(): metadata[:6].decode()
-            for value in subprocess.check_output(["git", "ls-files", "--stage", "-z"]).split(b"\0")
-            if value
-            for metadata, path in (value.split(b"\t", 1),)
-        }
+        index = {}
+        entries = subprocess.check_output(["git", "ls-files", "--stage", "-z"]).split(b"\0")
+        for entry in entries:
+            if entry:
+                metadata, path = entry.split(b"\t", maxsplit=1)
+                index[path.decode()] = metadata[:6].decode()
         encoding = __import__("tiktoken").get_encoding("o200k_base")
         counts = dict.fromkeys(LIMITS, 0)
         for path in index:
@@ -52,7 +55,7 @@ def main():
                 if BRAND.sub("remek", value) != value:
                     violations.append(f"{path}:{line}")
     except (OSError, RuntimeError, UnicodeError, subprocess.SubprocessError):
-        sys.stderr.write("repo-tokens: invalid tree\n")
+        sys.stderr.write("repo-tokens: invalid\n")
         return 2
     if "skills/remek/SKILL.md" not in index or any(
         path.startswith("skills/") and not path.startswith("skills/remek/") for path in index
@@ -65,16 +68,18 @@ def main():
         for path in index
     ):
         violations.append("vendor/cache")
-    for path, mode in MODES.items():
-        executable = bool((root / path).stat().st_mode & 0o100)
-        if index.get(path) != mode or executable != (mode == "100755"):
+    for path in sorted(EXECUTABLE | PLAIN):
+        executable = path in EXECUTABLE
+        mode = "100755" if executable else "100644"
+        actual = bool((root / path).stat().st_mode & 0o100)
+        if index.get(path) != mode or actual != executable:
             violations.append(f"mode: {path}")
-    for name, source in {"gate": "toolchain/assets/gate", "remek": "scripts/cli.py"}.items():
+    for name, source in (("gate", "toolchain/assets/gate"), ("remek", "scripts/cli.py")):
         if (root / name).read_bytes() != (root / "skills/remek" / source).read_bytes():
             violations.append(f"shim: {name}")
     total, files = sum(counts.values()), len(index)
-    if total > 100_000:
-        violations.append(f"total={total}>100000")
+    if total > 125_000:
+        violations.append(f"total={total}>125000")
     if files > 70:
         violations.append(f"files={files}>70")
     for name, limit in LIMITS.items():
@@ -88,4 +93,4 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_main())

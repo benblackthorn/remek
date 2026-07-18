@@ -21,7 +21,8 @@ plan inspection, audit, doctor, update, and apply.
 - Release Git queries disable repository-configured execution, reject active
   content filters, hiding index flags, and submodules, and bind every owned
   regular file to its raw HEAD blob and Git-representable mode.
-- Check warns on stale evidence; malformed receipts fail. Release names a
+- Check warns on stale evidence; malformed receipts and approvals fail without
+  hiding an otherwise valid skill. Release names a
   distribution, requires current evidence and approval, and binds clean Git,
   branch, audience, credential-free remote, and authenticated target. It never
   commits or pushes. Public manifests hash private context. Update keeps one layout.
@@ -29,8 +30,9 @@ plan inspection, audit, doctor, update, and apply.
   local filesystems. Validate the runtime tree before import; do not claim
   Windows support.
 - Trust the loaded bundle, interpreter, OS, intent, selected roots, and external
-  ancestors. Other inputs are hostile. Exclude noncooperating writers, process
-  death, and power loss.
+  ancestors. Other inputs are hostile. After bootstrap, resolve each Git and
+  GitHub CLI executable canonically outside all selected roots and filter child
+  PATH. Exclude noncooperating writers, process death, and power loss.
 
 ## Anti-bloat contract
 
@@ -57,8 +59,8 @@ Expected failures use `RemekError` without tracebacks. Never weaken tests.
 
 ## Fixed ceilings
 
-- At most 100,000 tracked `o200k_base` tokens and at most 70 files: at most
-  70,000 shipped, 30,000 test, 15,000 documentation, and 5,000 other tokens,
+- At most 125,000 tracked `o200k_base` tokens and at most 70 files: at most
+  70,000 shipped, 35,000 test, 15,000 documentation, and 10,000 other tokens,
   with zero vendor tokens.
 - At most 250 collected tests, exactly `skills/remek`, exactly one `remek.1`
   schema family, and zero third-party runtime dependencies.

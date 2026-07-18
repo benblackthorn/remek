@@ -1,14 +1,23 @@
 ---
 name: "remek"
-description: "Use when a request names remek or asks to govern, audit, evaluate, approve, distribute, or verify release of owned Agent Skill bytes or mirrors. remek governs completed bytes and external results; authoring, Git, installation, and provider work use compatible capabilities."
+description: "Use when a request names remek or asks to initialize a governed Agent Skills source; capture, import, or revise governed skills; record reviewed external evidence or distribution approval; audit an untrusted skill; or prepare and verify a release mirror you own. remek governs completed skill bytes and reviewed results; authoring, evaluation runs, Git, installation, and publishing use compatible capabilities."
 license: "MIT"
-compatibility: "Requires Python 3.11+, verified POSIX local storage, Git for scaffold, staging, and release, and GitHub CLI for verified GitHub targets."
+compatibility: "Requires Python 3.11+ on macOS or native Linux, verified POSIX local storage, Git for scaffold, staging, and release, and GitHub CLI for verified GitHub targets."
 ---
 
 # remek
 
-Follow [references/workflows.md](references/workflows.md) exactly. Start only
-from completed work, a design, or a reviewed import.
+remek governs reviewed, file-based Agent Skills represented as canonical UTF-8
+file trees: provenance, policy, cases, evidence, approval, and release manifests
+bound to exact bytes. Follow [references/workflows.md](references/workflows.md)
+exactly. Run the installed `scripts/cli.py` with `python3 -I -S -B`; inside a
+governed source, use its `./remek` wrapper.
+
+Start only from completed work, a design, or a reviewed import. For captured
+work, write the confirmed procedure to one file the user reviews; remek
+retains that exact file, never the chat. Only `scaffold` mutates directly.
+Every durable change follows save plan → `plan show` → owner approval →
+`apply`; drifted inputs refuse and nothing lands.
 
 Never invent procedures, bypass refusals, or hand-edit governed outputs. remek
 never runs providers or candidates, creates repositories, installs, commits,
@@ -26,4 +35,6 @@ recommended topology, and confirm the name and absolute path before creation.
 
 Speak as the workflow and lead with the outcome. Keep routine output internal;
 show exact plans and refusals, then give the reference's completion status.
-Approval is not access; exposure is not installation.
+Evidence and release approval are independent gates. The reviewer field is a
+declaration, not authentication or receipt attestation, and approval grants no
+runtime, tool, or script permission. Exposure is not installation.

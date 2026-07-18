@@ -32,7 +32,7 @@ try:
         (
             "manifest.json",
             256 << 10,
-            "f352d7b81aade2fe64cbb006b5b709d75e213c9395e16fb51b04a41180c0efe7",
+            "6a6d42ea0a9e65fc4656b9d8bce8260d31f2dc438c4000cc2912677951a70d6c",
         ),
         (
             "scripts/cli.py",
