@@ -28,7 +28,7 @@ audience.
 > refuses to release different bytes from the ones you reviewed.**
 
 `gh skill` requires GitHub CLI 2.90 or newer and remains in public preview.
-GitHub does not verify installed skills, so inspect the pinned release first:
+GitHub does not verify installed skills, so inspect the exact release first:
 
 ```bash
 gh --version
@@ -38,19 +38,20 @@ gh skill preview benblackthorn/remek remek@v1.0.4
 Install for Codex in user scope and verify the installed CLI:
 
 ```bash
-gh skill install benblackthorn/remek remek@v1.0.4 --agent codex --scope user
+gh skill install benblackthorn/remek remek --pin v1.0.4 --agent codex --scope user
 python3 -I -S -B "$HOME/.codex/skills/remek/scripts/cli.py" --version
 ```
 
 For Claude Code:
 
 ```bash
-gh skill install benblackthorn/remek remek@v1.0.4 --agent claude-code --scope user
+gh skill install benblackthorn/remek remek --pin v1.0.4 --agent claude-code --scope user
 python3 -I -S -B "$HOME/.claude/skills/remek/scripts/cli.py" --version
 ```
 
-Both checks should print `remek 1.0.4`. The installer places a user-scoped
-skill for the selected coding agent, not a shell command. Then ask:
+Both checks should print `remek 1.0.4`; `gh skill list --scope user` should
+report the install as pinned. The installer places a user-scoped skill for the
+selected coding agent, not a shell command. Then ask:
 
 > Set up my private governed skills source with remek. Discover my existing
 > conventions and repositories first, then confirm the name and absolute path
