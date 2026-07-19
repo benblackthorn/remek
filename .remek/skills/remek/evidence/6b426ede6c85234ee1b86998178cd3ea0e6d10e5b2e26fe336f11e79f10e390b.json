@@ -1,11 +1,11 @@
 {
   "artifacts": [
     {
-      "digest": "bf2af9bae815b752198f647c220db96ce522f6cd4b0894994e0209bf6fff7298",
+      "digest": "0c8a3013089643117e6c31670173990d3fc9499943be06b5ab4d338a1c7d0986",
       "label": "evaluation-report"
     }
   ],
-  "candidate": "7327f2bc7cd27fc22f3f5cde2eb0deb23c5b34e9cfe9bb11a97cb47213ba83a6",
+  "candidate": "9f90410140f6360c0fa9e09b2045a96b3e9238e5e1666db37d1f1d4acd036966",
   "caseSetDigest": "c1898e04a29229c35cc46383bd7887856b9784aec537a68d6061a368bf4df44f",
   "distribution": null,
   "evidenceKind": "behavior",
@@ -15,9 +15,9 @@
     "kind": "manual-host",
     "minimumPassCount": 3,
     "name": "Codex desktop gpt-5.6-sol ultra",
-    "runConfigDigest": "789ed9b3acb2e6ff2180698dc7fc3583cafb1aae4ed78b1c12cf0ca1249e29a7",
+    "runConfigDigest": "59811a4f351c9930b5200c495b3a9a11d61a5c13a4820b020f5fd6ee018b8a48",
     "trialCount": 3,
-    "version": "gpt-5.6-sol / Codex 26.715.21425+5488"
+    "version": "gpt-5.6-sol / Codex 26.715.31925+5551"
   },
   "results": [
     {

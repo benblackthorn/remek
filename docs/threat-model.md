@@ -43,6 +43,11 @@ or visibility. These checks constrain child tools only after trusted Python has
 loaded verified remek bytes; they do not authenticate the interpreter or repair
 pre-bootstrap PATH selection.
 
+Organizations may create the mirror commit under an external Git signing policy
+before `release verify`, or sign a tag pointing to the verified commit. remek
+holds no signing keys, does not verify signatures, and treats them as neither
+evaluation evidence nor release approval.
+
 ## Honest limitations
 
 People, agents, hooks, and processes can bypass remek; forge controls are separate.

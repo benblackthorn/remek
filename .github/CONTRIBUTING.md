@@ -2,6 +2,10 @@
 
 Send small corrections as pull requests. New surface or a higher ceiling needs
 an issue and owner approval under [`AGENTS.md`](../AGENTS.md).
+Reproduced defects, compatibility or security evidence, documentation fixes,
+and narrow improvements are welcome. The governance model, persisted schema,
+trusted surface, platform guarantees, and release semantics remain
+maintainer-controlled and expand conservatively.
 
 Never post credentials, private content, or raw evaluations. Report sensitive
 issues privately.
@@ -20,3 +24,5 @@ raw observations private.
 ## Pull requests
 
 State the problem, smallest fix, surface delta, and verification. Do not mix work.
+Pull requests against release mirrors are proposals; accepted changes are
+reproduced and re-proved in the authoritative governed source before release.

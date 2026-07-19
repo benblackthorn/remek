@@ -88,6 +88,10 @@ hidden index state, submodules, auxiliary indexes, and local Git execution or
 transport overrides refuse. Subprocesses allow 30 seconds and 4 MiB UTF-8 I/O;
 target queries allow 64 KiB. `plan show` allows 768 KiB text or one third of its
 1 MiB JSON bound; `--max-bytes` only lowers limits.
+Managed release requires the governed source and mirror to equal their Git worktree
+roots and checks the full Git object database. Project mode therefore inherits the
+enclosing repository's object-database cost; a monorepo that cannot finish within
+the 30-second bound needs a separate governed source.
 After the trusted interpreter loads the verified bundle, each `git` or `gh`
 launch resolves a canonical absolute single-linked regular executable outside
 every selected root. Empty and relative PATH entries refuse. Symlinked entries

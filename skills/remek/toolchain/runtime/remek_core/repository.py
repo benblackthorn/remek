@@ -56,7 +56,14 @@ CONFIG_NAME = "remek.json"
 DISCLOSURE_PATH = ".remek/disclosure-policy.json"
 SKILLS_START, SKILLS_END = "<!-- remek-skills:start -->", "<!-- remek-skills:end -->"
 INJECTED_METADATA_KEYS = frozenset(
-    {"github-path", "github-pinned", "github-ref", "github-repo", "github-tree-sha"}
+    {
+        "github-path",
+        "github-pinned",
+        "github-ref",
+        "github-repo",
+        "github-tree-sha",
+        "local-path",
+    }
 )
 MAX_RECORD_BYTES, MAX_RECORDS, MAX_SKILL_GOV, MAX_REPO_GOV = 65536, 128, 4194304, 16777216
 MAX_FINDINGS = 4096
@@ -1759,7 +1766,7 @@ def audit_repository(root: Path) -> tuple[Finding, ...]:
             issues.append(
                 _f(
                     "audit.metadata",
-                    "normalizable installer metadata keys: " + ", ".join(injected),
+                    "installer metadata normalized by imported scaffold: " + ", ".join(injected),
                     f"{label}/SKILL.md",
                     "info",
                 )

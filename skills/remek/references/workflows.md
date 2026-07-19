@@ -66,6 +66,16 @@ exact plans and refusals. End with lifecycle/exposure, Git, consumer
 installation/synchronization, evidence freshness, release readiness, and the
 next action. `source-only` is exposure, not installation.
 
+For release-related completion, state the audience and selected-skill count,
+including `0 — releases no skills`. Report local materialization and
+verification separately from push readiness. remek does not observe remote
+publication or anonymous installation: report both as `NOT OBSERVED BY remek`,
+except that a private audience makes anonymous installation
+`NO — PRIVATE AUDIENCE`. Then report any separately authorized Git, GitHub, or
+installer observation with its own evidence. Never infer publication from
+`public-eligible`, expected visibility, staging, a dry run, or local release
+verification.
+
 ## Private source
 
 ```bash
@@ -85,6 +95,19 @@ structure, not safety. Runtime-only code or class definitions, live dynamic
 resources, and MCP sources require a reviewed file snapshot; remek governs that
 snapshot, not the live source. Complete candidate, provenance, policy, and both
 case sets in the owner-only workspace; `accept` invents nothing.
+
+GitHub CLI projections with consistently four-space scalar `metadata` parse;
+imported scaffold strips only the named installer tracking keys and renders the
+remaining frontmatter canonically. Run `audit` on an owner-only working copy. On
+`audit.profile-unsupported`, rewrite only frontmatter into remek's supported
+subset; on `audit.open-invalid`, correct the named structural defect. Retain the
+original path, mode, and SHA-256 manifest; keep resources byte-identical and make
+only reviewed `SKILL.md` changes. Make the directory basename and frontmatter
+`name` match, JSON-quote scalar strings, use supported top-level fields, and use
+two-space scalar `metadata` children. `audit.metadata` names the exact installer
+keys imported scaffold strips; other metadata is preserved. Repeat audit then
+scaffold; on `scaffold.import`, fix only its named detail and restart from audit.
+Never normalize the installed or upstream copy in place.
 
 ```bash
 ./remek scaffold --name NAME --origin captured --source /abs/work.md --workspace /abs/work/NAME
@@ -131,6 +154,10 @@ python3 -I -S -B "$remek_cli" apply /abs/review/init.json
 
 Consumer installation, if requested, is separate. `--project` intentionally
 governs `.agents/skills/`; it is a different topology, not a migration repair.
+Managed release requires the governed source and mirror to be Git worktree roots.
+It checks the full Git object database under the fixed 30-second subprocess bound;
+project mode therefore inherits the enclosing repository's object-database cost.
+Use a dedicated governed source when a large monorepo cannot meet that boundary.
 
 ## Quality and distribution
 
@@ -206,6 +233,11 @@ git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C /abs/mirror commit --
 ./remek release verify DIST --mirror /abs/mirror
 git -C /abs/mirror push --no-verify --no-follow-tags --no-signed REMOTE 'HEAD:refs/heads/BRANCH'
 ```
+
+The sample commit is deliberately unsigned. If organizational policy requires
+signatures, replace that command with an externally governed signed commit before
+`release verify`, or sign a tag pointing to the verified commit. remek holds no
+keys and signatures replace neither evaluation evidence nor release approval.
 
 Staging is not push-ready; commit, validation, push, tag, publish, and visibility
 remain separate. A released mirror is a plain Git repository that an installer

@@ -208,13 +208,17 @@ def test_placeholder_scope_is_narrow(tmp_path):
 def test_audit_names_each_exact_installer_key(key, tmp_path):
     skill = tmp_path / "external"
     skill.mkdir()
-    (skill / "SKILL.md").write_bytes(
-        render_skill(
-            {"name": "external", "description": "External skill.", "metadata": {key: "x"}},
-            "# External\n",
-        )
+    (skill / "SKILL.md").write_text(
+        "---\n"
+        "description: External skill.\n"
+        "metadata:\n"
+        f"    {key}: x\n"
+        "name: external\n"
+        "---\n"
+        "# External\n"
     )
     findings = audit_repository(skill)
+    assert not any(item.code == "audit.profile-unsupported" for item in findings)
     assert any(item.code == "audit.metadata" and key in item.message for item in findings)
     incompatible = next(item for item in findings if item.code == "audit.remek-incompatible")
     assert incompatible.message == "structurally valid open format is outside remek profile"

@@ -96,6 +96,9 @@ def test_plan_diff_ceiling_can_only_lower(tmp_path):
     change = write_change(root, root / "x", b"\x1b[2J", "test")
     rendered = plan_diff(Plan("test", root, (change,)))
     assert "\x1b" not in rendered and r"\u001b" in rendered
+    (root / "x").write_text("same\n")
+    mode = write_change(root, root / "x", b"same\n", "test", mode=0o755)
+    assert plan_diff(Plan("test", root, (mode,))) == f"mode {root / 'x'}: 0644 -> 0755\n"
     (root / "x").unlink()
     (root / "x").symlink_to("missing")
     assert "mode" in plan_diff(Plan("test", root, (change,)))

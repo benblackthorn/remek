@@ -2,7 +2,7 @@
 name: "remek"
 description: "Use when a request names remek or asks to initialize a governed Agent Skills source; capture, import, or revise governed skills; record reviewed external evidence or distribution approval; audit an untrusted skill; or prepare and verify a release mirror you own. remek governs completed skill bytes and reviewed results; authoring, evaluation runs, Git, installation, and publishing use compatible capabilities."
 license: "MIT"
-compatibility: "Requires Python 3.11+ on macOS or native Linux, verified POSIX local storage, Git for scaffold, staging, and release, and GitHub CLI for verified GitHub targets."
+compatibility: "Requires Python 3.11+ on macOS or native Linux, verified POSIX local storage, Git for scaffold, staging, and release, and GitHub CLI for verified GitHub targets. Managed release requires source and mirror Git worktree roots; project-mode integrity must finish within 30 seconds."
 ---
 
 # remek
@@ -37,4 +37,9 @@ Speak as the workflow and lead with the outcome. Keep routine output internal;
 show exact plans and refusals, then give the reference's completion status.
 Evidence and release approval are independent gates. The reviewer field is a
 declaration, not authentication or receipt attestation, and approval grants no
-runtime, tool, or script permission. Exposure is not installation.
+runtime, tool, or script permission. Exposure is not installation. For release
+status, name audience and selected count, distinguish local verification from
+push readiness, report remote publication and anonymous installation as not
+observed by remek unless their owner separately observes them, and say when a
+private audience disallows anonymous installation or an empty selection
+releases nothing.

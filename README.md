@@ -5,18 +5,62 @@
 remek is a local-first governance toolkit for **turning completed
 [Agent Skills](https://agentskills.io/) into reviewed, releasable artifacts**.
 
-It sits between authoring and publishing.
+It sits between authoring and publishing:
 
-- **Agent Skills** defines the portable skill artifact.
-- **remek** governs which exact skill bytes are approved for release, on what
-  evidence, for which audience, and to which distribution target.
-- **Hosts, installers, evaluation harnesses, and catalogs** remain separate
-  systems.
+| Layer | Owns |
+| --- | --- |
+| Agent Skills | Portable skill artifact and open format |
+| Git | History and transport |
+| `gh skill` | Preview, installation, updates, version pins, and publication validation |
+| remek | Exact candidate, provenance, evidence freshness, approval, disclosure, selected projection, and pre-push verification |
+| Agent host | Routing, tools, runtime authorization, and execution |
 
 In practical terms, remek helps you take a skill that already exists, bind it to
 exact identity and provenance, review evidence against those exact bytes,
 approve a release, and prepare a controlled projection for the right mirror or
 audience.
+
+---
+
+## Preview, install, and start
+
+> **Change the skill, and its old evidence and approval stop counting. remek
+> refuses to release different bytes from the ones you reviewed.**
+
+`gh skill` requires GitHub CLI 2.90 or newer and remains in public preview.
+GitHub does not verify installed skills, so inspect the pinned release first:
+
+```bash
+gh --version
+gh skill preview benblackthorn/remek remek@v1.0.4
+```
+
+Install for Codex in user scope and verify the installed CLI:
+
+```bash
+gh skill install benblackthorn/remek remek@v1.0.4 --agent codex --scope user
+python3 -I -S -B "$HOME/.codex/skills/remek/scripts/cli.py" --version
+```
+
+For Claude Code:
+
+```bash
+gh skill install benblackthorn/remek remek@v1.0.4 --agent claude-code --scope user
+python3 -I -S -B "$HOME/.claude/skills/remek/scripts/cli.py" --version
+```
+
+Both checks should print `remek 1.0.4`. The installer places a user-scoped
+skill for the selected coding agent, not a shell command. Then ask:
+
+> Set up my private governed skills source with remek. Discover my existing
+> conventions and repositories first, then confirm the name and absolute path
+> before creating anything.
+
+You can also run `npx skills add benblackthorn/remek -g`. Use `gh` by default
+for private distributions; `npx skills` does not provide a complete
+private-repository contract. The
+[workflow reference](skills/remek/references/workflows.md) contains exact
+sequences.
 
 ---
 
@@ -42,7 +86,7 @@ remek is built around those questions.
 
 ## What remek is
 
-remek is a **governance kernel** for Agent Skills.
+remek is a **governed source and release layer** for Agent Skills.
 
 Today, the repository is designed around a few core ideas:
 
@@ -159,12 +203,22 @@ The standalone manifest verifier can check mirror payload integrity without the
 private source; it cannot reconstruct private evidence or approval. Staging-only
 output is unverified and never push-ready.
 
+Organizations that require cryptographic distribution assurance can create the
+mirror commit under their existing Git signing policy before `release verify`,
+or sign a tag pointing to the verified commit. remek holds no signing keys and
+does not treat signatures as evidence or approval.
+
 Release requires `ready` lifecycle, audience-eligible exposure, complete
 rights, disclosure policy, current evidence and approval, clean committed Git,
 the expected branch and audience, credential-free remotes, and matching
 authenticated target visibility. Public release also requires separate history,
 blocked private disclosure, `public-eligible` policy, irreversibility review,
 and an exact candidate/provenance license match. Credentials cannot be excepted.
+
+This repository dogfoods governed-source intake and evidence: its
+[governed remek records](.remek/skills/remek/) contain the current policy,
+provenance, retained design, cases, and evidence. No self-issued remek
+distribution approval is claimed; managed mirrors omit the governance tree.
 
 ### Preserve last-known-good behavior through refusal
 
@@ -227,27 +281,6 @@ That is the category remek occupies.
 
 ---
 
-## Install
-
-```bash
-gh skill install benblackthorn/remek remek --scope user
-```
-
-This installs a user-scoped skill for your coding agent, not a shell command.
-Then ask:
-
-> Set up my private governed skills source with remek. Discover my existing
-> conventions and repositories first, then confirm the name and absolute path
-> before creating anything.
-
-You can also run `npx skills add benblackthorn/remek -g`. Use `gh` by default
-for private distributions; `npx skills` does not provide a complete
-private-repository contract. The
-[workflow reference](skills/remek/references/workflows.md) contains exact
-sequences.
-
----
-
 ## Current command and workflow surface
 
 The CLI stays centered on governance operations:
@@ -270,16 +303,6 @@ global `--root` and `--json` before the command.
 
 ---
 
-## Relationship to Agent Skills
-
-remek does not replace the Agent Skills format. It assumes Agent Skills already
-defines the artifact shape and portability contract.
-
-If Agent Skills answers **“what is a skill?”**, remek answers **“which exact
-skill release should be trusted for this audience, and why?”**
-
----
-
 ## Security and trust model
 
 remek takes a narrow, defensive approach.
@@ -298,6 +321,10 @@ Candidate content never executes. The shipped runtime is Python 3.11+,
 standard-library only, and scoped to verified POSIX local storage on macOS or
 native Linux. Ordinary workflows are offline; release alone authenticates the
 GitHub target, while bounded local Git queries are used where required.
+Managed release requires the governed source and mirror to be Git worktree roots
+and checks the full Git object database under a fixed 30-second subprocess bound.
+Project mode therefore inherits the enclosing repository's object-database cost;
+use a dedicated governed source when a large monorepo cannot meet that boundary.
 
 Governed payloads are bounded UTF-8 regular-file trees. Binary assets, links,
 special files, Windows, WSL, and network filesystems are unsupported. `audit`
@@ -346,7 +373,8 @@ It is especially relevant when you need to manage:
 - and strong correspondence between reviewed and released bytes.
 
 It is a working, opinionated toolkit, intentionally narrow and not an ecosystem
-standard. The trusted core stays small enough to reason about.
+standard, with a bounded, standard-library-only trusted core and explicit size
+and surface ceilings.
 
 ---
 
