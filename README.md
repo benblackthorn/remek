@@ -5,15 +5,16 @@
 remek is a local-first governance toolkit for **turning completed
 [Agent Skills](https://agentskills.io/) into reviewed, releasable artifacts**.
 
-It sits between authoring and publishing:
+It sits between authoring and publishing, with each layer owning a distinct part
+of the workflow:
 
-| Layer | Owns |
-| --- | --- |
-| Agent Skills | Portable skill artifact and open format |
-| Git | History and transport |
-| `gh skill` | Preview, installation, updates, version pins, and publication validation |
-| remek | Exact candidate, provenance, evidence freshness, approval, disclosure, selected projection, and pre-push verification |
-| Agent host | Routing, tools, runtime authorization, and execution |
+- **Agent Skills** define the portable skill artifact and open format.
+- **Git** provides history and transport.
+- **`gh skill`** handles preview, installation, updates, version pins, and
+  publication validation.
+- **remek** binds the exact candidate, provenance, evidence freshness, approval,
+  disclosure, selected projection, and pre-push verification.
+- The **agent host** owns routing, tools, runtime authorization, and execution.
 
 In practical terms, remek helps you take a skill that already exists, bind it to
 exact identity and provenance, review evidence against those exact bytes,
@@ -24,8 +25,8 @@ audience.
 
 ## Preview, install, and start
 
-> **Change the skill, and its old evidence and approval stop counting. remek
-> refuses to release different bytes from the ones you reviewed.**
+> **What you reviewed is what gets released. Change the skill, and remek
+> requires fresh evidence and approval.**
 
 `gh skill` requires GitHub CLI 2.90 or newer and remains in public preview.
 GitHub does not verify installed skills, so inspect the exact release first:
@@ -277,8 +278,6 @@ A simple way to think about remek is this:
    release manifest.
 7. **Publication remains separate** — Git, GitHub, and installers transport or
    place the verified bytes only after separate authorization.
-
-That is the category remek occupies.
 
 ---
 
