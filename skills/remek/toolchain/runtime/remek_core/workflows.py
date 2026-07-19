@@ -86,6 +86,7 @@ _LIFECYCLE_RANK = {"retired": -1, "draft": 0, "ready": 1}
 _EXPOSURE_RANK = {"source-only": 0, "private-only": 1, "public-eligible": 2}
 _WORKSPACE_KEYS = {"schema", "kind", "mode", "skill", "origin", "sourcePath", "base"}
 _PROCESS_OUTPUT_LIMIT = 4 * 1024 * 1024
+_PROCESS_TIMEOUT_SECONDS = 30  # Fixed subprocess contract; see docs/contracts.md.
 _TARGET_OUTPUT_LIMIT = 64 * 1024
 _RELEASE_HISTORY_LIMIT = 256
 _RELEASE_FILE = "release-manifest.json"
@@ -746,7 +747,7 @@ def _git_checkout_containing(path: Path, forbidden_roots: tuple[Path, ...]) -> P
         if exc.code == "external.unavailable" and exc.message.startswith("cannot run git"):
             raise Error(
                 "git.required",
-                "Git is required for scaffold and staging checkout-boundary checks",
+                "Git is required for scaffold and staging checkout-boundary checks; " + exc.message,
             ) from None
         raise
     if completed.returncode != 0:
@@ -1276,9 +1277,10 @@ def approve_record_plan(root: Path, distribution: str, skill_name: str, artifact
     )
 
 
-def repair_plan(root: Path) -> Plan:
+def repair_plan(root: Path, inspection: Inspection | None = None) -> Plan:
     root = checked(root)
-    return Plan("repair", root, repair_changes(inspect(root)))
+    current = inspection if inspection is not None else inspect(root)
+    return Plan("repair", root, repair_changes(current))
 
 
 def update_plan(root: Path, bundle: Path) -> Plan:
@@ -1324,15 +1326,15 @@ def _capture_process(
     for label, stream in (("stdout", process.stdout), ("stderr", process.stderr)):
         os.set_blocking(stream.fileno(), False)
         selector.register(stream, selectors.EVENT_READ, label)
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + _PROCESS_TIMEOUT_SECONDS
     try:
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise subprocess.TimeoutExpired(arguments, 30)
+                raise subprocess.TimeoutExpired(arguments, _PROCESS_TIMEOUT_SECONDS)
             events = selector.select(remaining)
             if not events:
-                raise subprocess.TimeoutExpired(arguments, 30)
+                raise subprocess.TimeoutExpired(arguments, _PROCESS_TIMEOUT_SECONDS)
             for key, _ in events:
                 chunk = os.read(key.fd, 65536)
                 if not chunk:
@@ -1367,7 +1369,7 @@ def _within_forbidden(path: Path, roots: tuple[Path, ...]) -> bool:
     return False
 
 
-def _external_command(  # noqa: PLR0912
+def _external_command(  # noqa: PLR0912, PLR0915
     arguments: list[str],
     environment: dict[str, str],
     forbidden_roots: tuple[Path, ...],
@@ -1379,6 +1381,7 @@ def _external_command(  # noqa: PLR0912
     roots = tuple(root.resolve(strict=False) for root in forbidden_roots)
     directories: list[Path] = []
     executable: Path | None = None
+    filtered: set[str] = set()
     for entry in value.split(os.pathsep):
         path = Path(entry)
         if not entry or not path.is_absolute():
@@ -1391,7 +1394,10 @@ def _external_command(  # noqa: PLR0912
             info = canonical.stat()
         except OSError:
             continue
-        if not stat.S_ISDIR(info.st_mode) or _within_forbidden(canonical, roots):
+        if not stat.S_ISDIR(info.st_mode):
+            continue
+        if _within_forbidden(canonical, roots):
+            filtered.add("directory is inside a selected root")
             continue
         tool_targets: dict[str, Path] = {}
         unsafe = False
@@ -1401,11 +1407,17 @@ def _external_command(  # noqa: PLR0912
                 target_info = target.stat()
             except OSError:
                 continue
-            if (
-                not stat.S_ISREG(target_info.st_mode)
-                or target_info.st_nlink != 1
-                or _within_forbidden(target, roots)
-            ):
+            reason = (
+                f"{name} target is not a regular file"
+                if not stat.S_ISREG(target_info.st_mode)
+                else f"{name} target has multiple hard links"
+                if target_info.st_nlink != 1
+                else f"{name} target is inside a selected root"
+                if _within_forbidden(target, roots)
+                else ""
+            )
+            if reason:
+                filtered.add(reason)
                 unsafe = True
                 break
             tool_targets[name] = target
@@ -1419,8 +1431,17 @@ def _external_command(  # noqa: PLR0912
             continue
         if os.access(candidate, os.X_OK):
             executable = candidate
+        else:
+            filtered.add(f"{tool} target is not executable")
     if executable is None:
-        raise Error("external.unavailable", f"cannot run {tool}")
+        detail = (
+            ": PATH directories were filtered ("
+            + "; ".join(sorted(filtered))
+            + "); select executable, single-linked regular git and gh outside selected roots"
+            if filtered
+            else ""
+        )
+        raise Error("external.unavailable", f"cannot run {tool}{detail}")
     child = dict(environment)
     child["PATH"] = os.pathsep.join(str(path) for path in directories)
     return [str(executable), *arguments[1:]], child
@@ -1642,10 +1663,23 @@ def _git_state(root: Path, forbidden_roots: tuple[Path, ...] | None = None) -> J
             environment=_git_environment(),
             forbidden_roots=roots,
         )
-    except Error:
-        raise Error("git.integrity", "Git object integrity check failed") from None
+    except Error as exc:
+        if exc.code == "external.unavailable" and exc.message.startswith("cannot run git"):
+            raise Error(
+                "git.required",
+                "Git is required for release integrity checks; " + exc.message,
+            ) from None
+        raise Error(
+            "git.integrity",
+            f"Git object integrity check failed or exceeded its {_PROCESS_TIMEOUT_SECONDS}-second "
+            "command bound",
+        ) from None
     if integrity.returncode != 0:
-        raise Error("git.integrity", "Git object integrity check failed")
+        raise Error(
+            "git.integrity",
+            f"Git object integrity check failed or exceeded its {_PROCESS_TIMEOUT_SECONDS}-second "
+            "command bound",
+        )
     _guard_git_worktree(root, roots)
     status = _git(
         root,

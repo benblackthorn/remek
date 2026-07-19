@@ -157,6 +157,7 @@ def _block(lines: list[str], start: int, style: str) -> tuple[str, int]:
 def _parse(lines: list[str]) -> dict[str, object]:
     result: dict[str, object] = {}
     metadata: dict[str, object] | None = None
+    metadata_indent: int | None = None
     index = 0
     while index < len(lines):
         source, line = lines[index], index + 2
@@ -164,12 +165,13 @@ def _parse(lines: list[str]) -> dict[str, object]:
             index += 1
             continue
         spaces = len(source) - len(source.lstrip(" "))
-        if spaces not in {0, 2}:
-            raise _fail(line, "indentation must be zero or two spaces")
         if spaces:
+            if spaces not in {2, 4} or metadata_indent not in (None, spaces):
+                raise _fail(line, "metadata indentation must be consistently two or four spaces")
             if metadata is None:
                 raise _fail(line, "only metadata values may be indented")
-            key, value = _item(source[2:], line)
+            metadata_indent = spaces
+            key, value = _item(source[spaces:], line)
             if key in metadata or not value:
                 raise _fail(line, "duplicate key or nested mapping")
             parsed = _value(value, line)
@@ -179,6 +181,7 @@ def _parse(lines: list[str]) -> dict[str, object]:
             index += 1
             continue
         metadata = None
+        metadata_indent = None
         key, value = _item(source, line)
         if key in result:
             raise _fail(line, f"duplicate key {key!r}")

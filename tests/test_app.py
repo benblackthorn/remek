@@ -257,19 +257,25 @@ def test_wrapper_accepts_installer_projection_and_metadata(tmp_path):
         if path.is_file():
             path.chmod(0o644)
     completed = execute_python(skill / "scripts/cli.py", "--version")
-    assert completed.returncode == 0 and completed.stdout == "remek 1.0.3\n"
+    assert completed.returncode == 0 and completed.stdout == "remek 1.0.4\n"
 
 
-def test_repair_reports_unrepairable_blockers(tmp_path, capsys):
+def test_repair_refuses_blockers_then_saves_plan(tmp_path, capsys):
     root = initialized(tmp_path)
     (root / "remek").write_text("damaged\n")
-    (root / ".remek/unknown").write_text("foreign\n")
+    unknown = root / ".remek/unknown"
+    unknown.write_text("foreign\n")
     plan = tmp_path / "repair.json"
-    assert run(["--root", str(root), "--json", "repair", "--output", str(plan)]) == 1
+    arguments = ["--root", str(root), "--json", "repair", "--output", str(plan)]
+    assert run(arguments) == 1
     result = json.loads(capsys.readouterr().out)
-    codes = {item["code"] for item in result["findings"]}
-    assert result["status"] == "issues" and {"repo.shim", "governance.layout"} <= codes
-    assert not plan.exists() and (root / "remek").read_text() == "damaged\n"
+    assert {"repo.shim", "governance.layout"} <= {item["code"] for item in result["findings"]}
+    assert result["status"] == "issues" and not plan.exists()
+    unknown.unlink()
+    assert run(arguments) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "planned" and plan.is_file()
+    assert (root / "remek").read_text() == "damaged\n"
 
 
 @pytest.mark.parametrize(

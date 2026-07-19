@@ -83,7 +83,8 @@ def test_malformed_framing_and_lines_are_rejected(text):
         "metadata:\n  owner: one\n  owner: two\n",
         "unknown:\n  child: value\n",
         "metadata:\n  child:\n",
-        "metadata:\n    child: value\n",
+        "metadata:\n  owner: one\n    child: value\n",
+        "metadata:\n      child: value\n",
         "name:\n  child: value\n",
     ],
 )
@@ -149,3 +150,26 @@ def test_agent_skills_optional_fields_follow_the_open_spec():
             render_skill({**fields, "compatibility": compatibility}, "# Sample\n")
     with pytest.raises(FrontmatterError, match="allowed-tools must be a string"):
         render_skill({**fields, "allowed-tools": ["Read"]}, "# Sample\n")
+
+
+def test_github_cli_four_space_metadata_parses_and_renders_canonically():
+    fields, body = parse_skill(
+        "---\n"
+        "description: Installed by GitHub CLI.\n"
+        "metadata:\n"
+        "    github-path: skills/sample-skill\n"
+        "    github-ref: refs/tags/v1.0.4\n"
+        "    github-repo: https://github.com/owner/repository\n"
+        "    github-tree-sha: abcdef0123456789\n"
+        "name: sample-skill\n"
+        "---\n"
+        "# Sample\n"
+    )
+
+    assert fields["metadata"] == {
+        "github-path": "skills/sample-skill",
+        "github-ref": "refs/tags/v1.0.4",
+        "github-repo": "https://github.com/owner/repository",
+        "github-tree-sha": "abcdef0123456789",
+    }
+    assert b"\n  github-path:" in render_skill(fields, body)

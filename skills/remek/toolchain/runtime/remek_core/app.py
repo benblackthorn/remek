@@ -86,7 +86,7 @@ def _parser() -> _Parser:  # noqa: PLR0915
     )
     parser.add_argument("--root", type=Path, help="governed source root; default current directory")
     parser.add_argument("--json", action="store_true", help="emit one canonical JSON result")
-    parser.add_argument("--version", action="version", version="remek 1.0.3")
+    parser.add_argument("--version", action="version", version="remek 1.0.4")
     commands = parser.add_subparsers(dest="command", required=True)
 
     def command(name: str, help_text: str) -> argparse.ArgumentParser:
@@ -108,7 +108,9 @@ def _parser() -> _Parser:  # noqa: PLR0915
     )
 
     accept = command("accept", "plan acceptance of a complete workspace")
-    accept.add_argument("--workspace", type=Path, required=True)
+    accept.add_argument(
+        "--workspace", type=Path, required=True, help="complete owner-only scaffold workspace"
+    )
     _output(accept)
 
     for name, help_text in (
@@ -187,7 +189,12 @@ def _parser() -> _Parser:  # noqa: PLR0915
         .add_parser("show")
     )
     show.add_argument("plan", type=Path)
-    show.add_argument("--max-bytes", type=int, default=MAX_DIFF_BYTES)
+    show.add_argument(
+        "--max-bytes",
+        type=int,
+        default=MAX_DIFF_BYTES,
+        help="only lower the 768 KiB rendered-diff ceiling",
+    )
 
     audit = command("audit", "inspect an untrusted skill payload read-only")
     audit.add_argument("target", type=Path)
@@ -379,11 +386,13 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
             {"root": str(root), "release": distribution},
         )
     if command == "repair":
-        findings = check(inspect(root))
+        inspection = inspect(root)
+        findings = check(inspection)
         errors = tuple(item for item in findings if item.severity == "error")
         if any(not item.repairable for item in errors):
             return _findings_result("repair", findings, {"root": str(root)})
-        plan = repair_plan(root)
+        # No mutation occurred; reuse is valid only within this preflight boundary.
+        plan = repair_plan(root, inspection)
         if errors and not plan.changes:
             return _findings_result("repair", findings, {"root": str(root)})
         return planned(plan)

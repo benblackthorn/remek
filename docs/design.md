@@ -49,3 +49,8 @@ The Python 3.11+ standard-library runtime is POSIX-only and offline except
 read-only Git and target queries. One `remek.1` family and fixed ceilings keep it
 reviewable. New surface needs owner approval. See [contracts](contracts.md) and
 [threat model](threat-model.md).
+
+Inspections are recomputed across mutation and verification boundaries; one
+unchanged preflight may reuse its inspection. Each tree snapshot reads its
+selected tree twice to detect concurrent mutation, deliberately paying linear
+I/O in that tree.
