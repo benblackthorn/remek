@@ -86,7 +86,7 @@ def _parser() -> _Parser:  # noqa: PLR0915
     )
     parser.add_argument("--root", type=Path, help="governed source root; default current directory")
     parser.add_argument("--json", action="store_true", help="emit one canonical JSON result")
-    parser.add_argument("--version", action="version", version="remek 1.0.4")
+    parser.add_argument("--version", action="version", version="remek 1.0.5")
     commands = parser.add_subparsers(dest="command", required=True)
 
     def command(name: str, help_text: str) -> argparse.ArgumentParser:

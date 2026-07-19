@@ -15,6 +15,29 @@ python3 -I -S -B /abs/installed/remek/scripts/cli.py apply P
 
 Later examples use reviewed source `./remek`.
 
+## Scratch and private artifacts
+
+When needed, create one external mode-0700 run root under verified local POSIX
+temporary storage with `umask 077`, outside pre-existing protected roots.
+Separate plans, workspaces, inputs, raw reports, environments, and checkouts.
+
+`<git-root>/.tmp/remek/<skill-or-project>/<run-id>/` is coordination-only. Use a
+fresh absent mode-0700 leaf after proving canonical containment, nonsymlink
+components, an untracked path, and `git check-ignore` success:
+
+- Init generates `/.tmp/` if the target or its `.gitignore` is absent.
+- An existing `.gitignore` stays byte-identical; if it lacks `/.tmp/`, offer an
+  owner-approved edit and use the external root until that lands.
+- Project mode follows those rules at its worktree root.
+- Ungoverned Git uses repository scratch only when already ignored.
+- A plain project or installed-only run uses only the external root. Initialization
+  may create its governed source and generated ignore; scratch alone never does.
+
+Never store artifacts in installed skill directories or common personal
+folders. Keep persistent raw evidence in an owner-approved external store; owner
+paths never override overlap refusals. Clean only this run after proving its
+bytes were accepted or moved; report retained paths and sizes.
+
 ## Whole-request workflow
 
 Before first initialization, quietly inspect instructions, memory, project and
@@ -32,23 +55,10 @@ visibility need separate authorization. Reuse it unless project-local.
 
 ### Authoring handoff
 
-Lifecycle: read-only discovery → authoring selection → completed
-candidate/design/import → remek scaffold/accept → optional Git/install → summary.
-
-Quietly inspect the active host and native capabilities; installed descriptions
-covering Agent Skill creation, improvement, or evaluation; project, user, and
-agent instructions and known preferences; repository conventions and prior
-workflows; and compatibility with host tools. Match capability, not a name such
-as `skill-creator`.
-
-- Known compatible preference: use it. One compatible choice: use it silently.
-- Native plus another credible installed choice, with no preference: ask once.
-  Recommend native unless the task, repository history, or documented workflow
-  justifies the alternative. State only the material difference, never a catalog.
-- Exclude incompatible choices; mention them only if material. With none, use
-  the normal workflow and continue.
-- Remember via existing memory or instructions only, never remek. Never silently
-  install an authoring skill or mix workflows.
+Inspect compatible native and installed capabilities, instructions, preferences,
+and prior workflows. Use a known or sole choice silently; if several remain, ask
+once, recommend native absent contrary evidence, and state only the material
+difference. Never install, mix, or store choices in remek.
 
 Finish one candidate, design, or reviewed import, then hand it to remek.
 Authoring may design or run external evaluations; its output is not trusted
@@ -61,28 +71,17 @@ credential, and tool access; state runtime requirements in `compatibility`.
 Treat `allowed-tools` as experimental host guidance, not cross-host
 authorization, and cover dangerous or irreversible paths in behavior cases.
 
-Lead with the outcome, hide internal routing and routine findings, and show
-exact plans and refusals. End with lifecycle/exposure, Git, consumer
-installation/synchronization, evidence freshness, release readiness, and the
-next action. `source-only` is exposure, not installation.
-
-For release-related completion, state the audience and selected-skill count,
-including `0 — releases no skills`. Report local materialization and
-verification separately from push readiness. remek does not observe remote
-publication or anonymous installation: report both as `NOT OBSERVED BY remek`,
-except that a private audience makes anonymous installation
-`NO — PRIVATE AUDIENCE`. Then report any separately authorized Git, GitHub, or
-installer observation with its own evidence. Never infer publication from
-`public-eligible`, expected visibility, staging, a dry run, or local release
-verification.
+End with lifecycle, Git/install, evidence, release status, and next action;
+`source-only` is exposure, not installation. Never infer publication from policy
+or local preparation.
 
 ## Private source
 
 ```bash
-python3 -I -S -B /abs/installed/remek/scripts/cli.py init /abs/source --output /tmp/init.json
-python3 -I -S -B /abs/installed/remek/scripts/cli.py plan show /tmp/init.json
+python3 -I -S -B /abs/installed/remek/scripts/cli.py init /abs/source --output /abs/session/plans/init.json
+python3 -I -S -B /abs/installed/remek/scripts/cli.py plan show /abs/session/plans/init.json
 # Explain the exact paths and effects, then wait for owner approval.
-python3 -I -S -B /abs/installed/remek/scripts/cli.py apply /tmp/init.json
+python3 -I -S -B /abs/installed/remek/scripts/cli.py apply /abs/session/plans/init.json
 cd /abs/source
 ./remek check
 ```
@@ -97,10 +96,10 @@ snapshot, not the live source. Complete candidate, provenance, policy, and both
 case sets in the owner-only workspace; `accept` invents nothing.
 
 GitHub CLI projections with consistently four-space scalar `metadata` parse;
-imported scaffold strips only the named installer tracking keys and renders the
+imported scaffold strips only named installer tracking keys and renders the
 remaining frontmatter canonically. Run `audit` on an owner-only working copy. On
-`audit.profile-unsupported`, rewrite only frontmatter into remek's supported
-subset; on `audit.open-invalid`, correct the named structural defect. Retain the
+`audit.profile-unsupported`, correct only its named tree or frontmatter
+boundary; on `audit.open-invalid`, correct the named structural defect. Retain the
 original path, mode, and SHA-256 manifest; keep resources byte-identical and make
 only reviewed `SKILL.md` changes. Make the directory basename and frontmatter
 `name` match, JSON-quote scalar strings, use supported top-level fields, and use
@@ -110,11 +109,13 @@ scaffold; on `scaffold.import`, fix only its named detail and restart from audit
 Never normalize the installed or upstream copy in place.
 
 ```bash
-./remek scaffold --name NAME --origin captured --source /abs/work.md --workspace /abs/work/NAME
-./remek accept --workspace /abs/work/NAME --output /tmp/accept.json
+./remek scaffold --name NAME --origin captured --source /abs/session/inputs/work.md --workspace /abs/session/workspaces/NAME
+./remek accept --workspace /abs/session/workspaces/NAME --output /abs/session/plans/accept.json
 ```
 
-Revise with `./remek scaffold --skill NAME --workspace /abs/work/NAME-v2`. Base
+Revise with
+`./remek scaffold --skill NAME --workspace /abs/session/workspaces/NAME-v2`.
+Base
 drift leaves source unchanged; scaffold again. Promote with a byte-identical
 revision: edit the workspace policy's lifecycle or exposure with a fresh
 stateReason, then accept; promotion is not release. `retire` keeps the governed
@@ -131,8 +132,8 @@ into a separate completed `imported` workspace:
 ```bash
 remek_cli=/abs/installed/remek/scripts/cli.py
 source_root=/abs/existing-source
-python3 -I -S -B "$remek_cli" audit /abs/verified-copy/NAME
-python3 -I -S -B "$remek_cli" --root "$source_root" scaffold --name NAME --origin imported --source /abs/verified-copy/NAME --workspace /abs/work/NAME-import
+python3 -I -S -B "$remek_cli" audit /abs/session/inputs/verified-copy/NAME
+python3 -I -S -B "$remek_cli" --root "$source_root" scaffold --name NAME --origin imported --source /abs/session/inputs/verified-copy/NAME --workspace /abs/session/workspaces/NAME-import
 # Repeat audit and scaffold for every existing skill.
 ```
 
@@ -141,14 +142,14 @@ workspaces are complete, move the colliding originals out so `skills/` is empty.
 Then initialize with the installed entrypoint before any local accept cycle:
 
 ```bash
-python3 -I -S -B "$remek_cli" init "$source_root" --output /abs/review/init.json
-python3 -I -S -B "$remek_cli" plan show /abs/review/init.json
+python3 -I -S -B "$remek_cli" init "$source_root" --output /abs/session/plans/init.json
+python3 -I -S -B "$remek_cli" plan show /abs/session/plans/init.json
 # Explain the exact paths and effects, then wait for owner approval.
-python3 -I -S -B "$remek_cli" apply /abs/review/init.json
-"$source_root/remek" --root "$source_root" accept --workspace /abs/work/NAME-import --output /abs/review/NAME-accept.json
-"$source_root/remek" --root "$source_root" plan show /abs/review/NAME-accept.json
+python3 -I -S -B "$remek_cli" apply /abs/session/plans/init.json
+"$source_root/remek" --root "$source_root" accept --workspace /abs/session/workspaces/NAME-import --output /abs/session/plans/NAME-accept.json
+"$source_root/remek" --root "$source_root" plan show /abs/session/plans/NAME-accept.json
 # Explain the exact paths and effects, then wait for owner approval.
-"$source_root/remek" --root "$source_root" apply /abs/review/NAME-accept.json
+"$source_root/remek" --root "$source_root" apply /abs/session/plans/NAME-accept.json
 # Repeat the accept cycle for every completed workspace.
 ```
 
@@ -165,7 +166,8 @@ Use a dedicated governed source when a large monorepo cannot meet that boundary.
 `draft`/`source-only` skill; candidate, case, profile, or catalog changes stale
 evidence. Source and mirror repositories require committed `HEAD`s.
 
-`/abs/distribution.json` and `/abs/disclosure.json` have these exact shapes:
+`/abs/session/inputs/distribution.json` and
+`/abs/session/inputs/disclosure.json` have these exact shapes:
 
 ```json
 {"schema":"remek.1","kind":"distribution","id":"DIST","audience":"private","skills":["NAME"],"target":{"provider":"github","hostname":"github.com","nameWithOwner":"OWNER/REPO","remote":"origin","branch":"main","expectedVisibility":"PRIVATE"},"delivery":["gh"],"evidencePolicy":{"routingProfiles":[{"kind":"manual-host","name":"HOST","version":"VERSION","claim":"regression","runConfigDigest":"CONFIG_SHA256","trialCount":3,"minimumPassCount":3}],"behaviorProfiles":[{"kind":"test-suite","name":"SUITE","version":"VERSION","claim":"regression","runConfigDigest":"CONFIG_SHA256","trialCount":1,"minimumPassCount":1}]},"privateDisclosure":"block"}
@@ -176,27 +178,27 @@ evidence. Source and mirror repositories require committed `HEAD`s.
 ```
 
 ```bash
-./remek distribution accept --from /abs/distribution.json --output /tmp/distribution.json
-./remek disclosure accept --from /abs/disclosure.json --output /tmp/disclosure.json
+./remek distribution accept --from /abs/session/inputs/distribution.json --output /abs/session/plans/distribution.json
+./remek disclosure accept --from /abs/session/inputs/disclosure.json --output /abs/session/plans/disclosure.json
 ./remek --json eval plan NAME --kind behavior
 ./remek --json eval plan NAME --kind routing --distribution DIST
-./remek eval record NAME --from /abs/behavior.json --output /tmp/b.json
-./remek eval record NAME --from /abs/routing.json --output /tmp/r.json
+./remek eval record NAME --from /abs/session/inputs/behavior.json --output /abs/session/plans/behavior.json
+./remek eval record NAME --from /abs/session/inputs/routing.json --output /abs/session/plans/routing.json
 ./remek --json approve plan DIST --skill NAME
-./remek approve record DIST --skill NAME --from /abs/approval.json --output /tmp/a.json
+./remek approve record DIST --skill NAME --from /abs/session/inputs/approval.json --output /abs/session/plans/approval.json
 ```
 
-Before evaluation, hash a private config covering the claim, baseline, hosts,
-models, catalog, script runner and runtime, isolation, filesystem, network,
-credential and tool permissions, runtime approval, retries, resource, time,
-turn, token and cost budgets, logging, and graders. Use clean contexts and at
-least three trials per host. A multi-host `external` profile must preserve each
-host's identity and results. Freeze or digest material dynamic inputs in the
-private report, or state their freshness limit; host caching and reload remain
-host responsibilities. Record aggregate passes and the private
-`evaluation-report` digest; keep trials and traces outside the source. Record
-failures. Routing and behavior profiles may name different evaluators or hosts;
-remek runs none. GitHub is the only implemented authenticated release target.
+Before evaluation, hash a private config covering claim, baseline, hosts, models,
+catalog, runner/runtime, isolation, permissions, runtime approval, retries,
+budgets, logging, and graders. Use clean contexts and at least three trials per
+host. A multi-host `external` profile preserves each host identity and result.
+Freeze or digest material dynamic inputs in the private report, or state their
+freshness limit; caching and reload remain host responsibilities. Before
+recording, verify every report digest and cited identity against preserved
+artifacts. Record aggregate passes and the private `evaluation-report` digest;
+keep trials and traces outside the source and record failures. Profiles may name
+different evaluators or hosts; remek runs none. GitHub is the only implemented
+authenticated release target.
 
 Evidence and release approval are independent gates. Approval binds candidate,
 provenance, distribution, exceptions, a reviewer declaration, and date; it does
@@ -222,16 +224,16 @@ the old source shim offers only its embedded toolchain.
 
 ```bash
 ./remek check --release DIST
-./remek release DIST --mirror /abs/mirror --output /tmp/release.json
-./remek plan show /tmp/release.json
+./remek release DIST --mirror /abs/session/mirror --output /abs/session/plans/release.json
+./remek plan show /abs/session/plans/release.json
 # Explain the exact paths and effects, then wait for owner approval.
-./remek apply /tmp/release.json
-git -c core.fsmonitor=false -C /abs/mirror add -A -- skills release-manifest.json
-git --no-pager -c core.fsmonitor=false -C /abs/mirror diff --cached --no-ext-diff --no-textconv -- skills release-manifest.json
-git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C /abs/mirror commit --no-gpg-sign -m "Release DIST"
-(cd /abs/mirror && gh skill publish --dry-run)
-./remek release verify DIST --mirror /abs/mirror
-git -C /abs/mirror push --no-verify --no-follow-tags --no-signed REMOTE 'HEAD:refs/heads/BRANCH'
+./remek apply /abs/session/plans/release.json
+git -c core.fsmonitor=false -C /abs/session/mirror add -A -- skills release-manifest.json
+git --no-pager -c core.fsmonitor=false -C /abs/session/mirror diff --cached --no-ext-diff --no-textconv -- skills release-manifest.json
+git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C /abs/session/mirror commit --no-gpg-sign -m "Release DIST"
+(cd /abs/session/mirror && gh skill publish --dry-run)
+./remek release verify DIST --mirror /abs/session/mirror
+git -C /abs/session/mirror push --no-verify --no-follow-tags --no-signed REMOTE 'HEAD:refs/heads/BRANCH'
 ```
 
 The sample commit is deliberately unsigned. If organizational policy requires
@@ -247,10 +249,11 @@ owning private source, then re-prove, re-approve, and release it. An independent
 owned organization instead uses reviewed import into its own governed source;
 current import provenance does not claim to preserve release-derived lineage.
 
-`check` and `check --release` are offline. `repair` must clear every blocker.
-`audit` reports structural compatibility, not benign intent, trustworthy
-provenance, or execution safety; it executes no candidate content. `doctor`
-reports the source and trusted-toolchain diagnosis. `eval plan` and `approve
+Checks are offline. `repair` plans only managed structure, preserves foreign
+data, reports residue, and clears blockers. `audit` executes nothing and reports
+structure, not intent, provenance, or safety. Credential findings expose only
+code and path, never matched text. `doctor` reports the
+source and trusted-toolchain diagnosis. `eval plan` and `approve
 plan` print the precise recording command as their next action. `apply` reports
 whether state was unchanged, changed, restored, or left with named residue;
 exit 3 never means the mirror stayed unchanged. Release alone authenticates the

@@ -16,8 +16,8 @@ governed source, use its `./remek` wrapper.
 Start only from completed work, a design, or a reviewed import. For captured
 work, write the confirmed procedure to one file the user reviews; remek
 retains that exact file, never the chat. Only `scaffold` mutates directly.
-Every durable change follows save plan → `plan show` → owner approval →
-`apply`; drifted inputs refuse and nothing lands.
+Every remek-owned source or mirror change follows save plan → `plan show` →
+owner approval → `apply`; drifted inputs refuse and nothing lands.
 
 Never invent procedures, bypass refusals, or hand-edit governed outputs. remek
 never runs providers or candidates, creates repositories, installs, commits,
@@ -27,6 +27,13 @@ host-native or known preferred compatible capability; if several credible
 choices remain without a preference, ask once. Give remek the completed
 candidate, design, or reviewed import, then continue authorized adjacent work.
 Never narrate capability discovery.
+
+Bound residue per the reference. Protected artifacts use one external mode-0700
+session; ignored, canonical `<git-root>/.tmp/remek/<name>/<run-id>/` is
+coordination-only.
+Never store artifacts in installed skill directories or common personal
+folders. Delete only proven disposable bytes, report retained paths and sizes,
+and preserve remek boundaries for owner-selected storage.
 
 Before first initialization, quietly discover instructions, project roots,
 skill repositories, Git state, and GitHub context. Reuse an established setup.

@@ -462,7 +462,7 @@ def _init_state(toolchain: Tree, config: Config, name: str) -> Tree:
                 ).encode(),
                 0o644,
             ),
-            File(".gitignore", b".DS_Store\n__pycache__/\n.venv/\n", 0o644),
+            File(".gitignore", b".DS_Store\n__pycache__/\n.venv/\n/.tmp/\n", 0o644),
         ]
     )
     source_files = {item.path: item for item in toolchain.files}

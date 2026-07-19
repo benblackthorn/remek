@@ -630,8 +630,8 @@ def merge_disclosure(previous: DisclosurePolicy, authored: DisclosurePolicy) -> 
     return DisclosurePolicy(tuple(merged))
 
 
-def _candidate(path: Path) -> tuple[Tree, dict[str, object], str]:
-    tree = git_tree(snapshot(path, reject_bytecode=True))
+def _candidate(path: Path, tree: Tree | None = None) -> tuple[Tree, dict[str, object], str]:
+    tree = tree or git_tree(snapshot(path, reject_bytecode=True))
     try:
         file = next(item for item in tree.files if item.path == "SKILL.md")
         fields, body = parse_skill(file.data.decode(errors="strict"))
@@ -1722,13 +1722,23 @@ def audit_repository(root: Path) -> tuple[Finding, ...]:
         issues.append(_f("audit.limit", f"audit found more than {MAX_SKILLS} skills", "."))
     for path in candidates[:MAX_SKILLS]:
         label = str(path.relative_to(root)) or "."
+        boundary = "tree"
         try:
-            tree, fields, body = _candidate(path)
-        except Error as exc:
+            tree = git_tree(snapshot(path, reject_bytecode=True))
+            issues.extend(
+                finding
+                for item in tree.files
+                for finding in credential_findings(
+                    item.data.decode(errors="ignore"), str(Path(label) / item.path)
+                )
+            )
+            boundary = "frontmatter"
+            tree, fields, body = _candidate(path, tree)
+        except Error:
             issues.append(
                 _f(
                     "audit.profile-unsupported",
-                    f"cannot audit with remek's deterministic profile: {exc.message}",
+                    f"unsupported deterministic {boundary}",
                     label,
                 )
             )
@@ -1741,8 +1751,7 @@ def audit_repository(root: Path) -> tuple[Finding, ...]:
                 else "rename the folder to match the frontmatter name or correct that name"
             )
             message = (
-                f"actual frontmatter name is {name!r} in folder {path.name!r}; expected equal "
-                f"lowercase hyphenated names; repair: {repair}"
+                f"frontmatter name must match folder and be lowercase hyphenated; repair: {repair}"
             )
         elif not isinstance(fields.get("description"), str):
             message = (

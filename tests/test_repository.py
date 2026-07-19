@@ -254,16 +254,19 @@ def test_audit_is_read_only_and_handles_empty(tmp_path):
         "---\nname: external\ndescription: Valid YAML # comment\n---\n# Instructions\n"
     )
     findings = audit_repository(skill)
-    assert any(item.code == "audit.profile-unsupported" for item in findings)
+    assert next(
+        item.message for item in findings if item.code == "audit.profile-unsupported"
+    ).endswith("frontmatter")
     assert not any(item.code == "audit.open-invalid" for item in findings)
     (skill / "SKILL.md").write_bytes(
         render_skill(
-            {"name": "different", "description": "Valid instructions."},
-            "# Instructions\n",
+            {"name": "different", "description": "Valid instructions."}, "# Instructions\n"
         )
     )
     mismatch = next(item for item in audit_repository(skill) if item.code == "audit.open-invalid")
-    assert "actual frontmatter name" in mismatch.message and "repair:" in mismatch.message
+    assert (
+        "frontmatter name must match folder" in mismatch.message and "repair:" in mismatch.message
+    )
 
 
 def test_audit_reports_candidate_count_bound(tmp_path, monkeypatch):

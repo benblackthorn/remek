@@ -6,6 +6,7 @@
         "Use one clear choice silently; with several compatible choices and no preference, ask once, recommend host-native absent a concrete reason, and state only the material difference.",
         "Use one authoring workflow, hand completed bytes, design, or reviewed import to remek, and do not trust its evaluation output automatically.",
         "Review shipped scripts and resources, runtime requirements, side effects, access, and dangerous paths; treat allowed-tools as host guidance.",
+        "Keep protected artifacts in one external owner-only session; use a fresh ignored canonical symlink-free run leaf for repository coordination only, clean only proven disposable bytes, and report retained paths and sizes.",
         "Continue requested Git or installation work with its owner, then summarize the lifecycle."
       ],
       "id": "authoring",
@@ -21,7 +22,7 @@
     },
     {
       "expectations": [
-        "Evidence binds candidate, cases, trials, report digest, and a run configuration covering runner, isolation, permissions, runtime approval, logging, and material dynamic inputs.",
+        "Evidence binds candidate, cases, trials, and a run configuration covering runner, isolation, permissions, runtime approval, logging, and material dynamic inputs; every report digest and cited identity matches preserved artifacts.",
         "remek calls no model, evaluator, or candidate script."
       ],
       "id": "evidence",
