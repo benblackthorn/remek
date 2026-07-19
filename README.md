@@ -33,24 +33,24 @@ GitHub does not verify installed skills, so inspect the exact release first:
 
 ```bash
 gh --version
-gh skill preview benblackthorn/remek remek@v1.0.4
+gh skill preview benblackthorn/remek remek@v1.0.5
 ```
 
 Install for Codex in user scope and verify the installed CLI:
 
 ```bash
-gh skill install benblackthorn/remek remek --pin v1.0.4 --agent codex --scope user
+gh skill install benblackthorn/remek remek --pin v1.0.5 --agent codex --scope user
 python3 -I -S -B "$HOME/.codex/skills/remek/scripts/cli.py" --version
 ```
 
 For Claude Code:
 
 ```bash
-gh skill install benblackthorn/remek remek --pin v1.0.4 --agent claude-code --scope user
+gh skill install benblackthorn/remek remek --pin v1.0.5 --agent claude-code --scope user
 python3 -I -S -B "$HOME/.claude/skills/remek/scripts/cli.py" --version
 ```
 
-Both checks should print `remek 1.0.4`; `gh skill list --scope user` should
+Both checks should print `remek 1.0.5`; `gh skill list --scope user` should
 report the install as pinned. The installer places a user-scoped skill for the
 selected coding agent, not a shell command. Then ask:
 
@@ -147,8 +147,8 @@ mirror state, selected paths, modes, and hashes.
 
 ### Generate deterministic plans before mutation
 
-Only `scaffold` mutates directly. Durable source and mirror changes are saved
-as exact plans, inspected, explained, approved by the owner, and then applied.
+Only `scaffold` mutates directly. remek-owned source and mirror changes are
+saved as exact plans, inspected, explained, approved by the owner, and applied.
 
 That gives remek a few important safety properties:
 

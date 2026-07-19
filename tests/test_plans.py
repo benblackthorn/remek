@@ -55,6 +55,11 @@ def test_plan_contains_identities_not_payload_bytes(tmp_path):
     ignored = existing / ".gitignore"
     ignored.write_text("owner rule\n")
     assert ignored not in {change.path for change in init_plan(existing, TOOLCHAIN).changes}
+    assert ignored.read_bytes() == b"owner rule\n"
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    addition = next(c for c in init_plan(bare, TOOLCHAIN).changes if c.path.name == ".gitignore")
+    assert addition.data.endswith(b"/.tmp/\n")
 
 
 def test_plan_digest_tampering_refuses(tmp_path):

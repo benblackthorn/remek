@@ -76,9 +76,13 @@ def release_roots(tmp_path, monkeypatch):
     return root, target
 
 
+def release(root, target, **options):
+    return release_plan(root, "org-private", mirror=target, **options)
+
+
 def materialized_release(tmp_path, monkeypatch):
     root, target = release_roots(tmp_path, monkeypatch)
-    apply(release_plan(root, "org-private", mirror=target))
+    apply(release(root, target))
     return root, target
 
 
@@ -441,7 +445,7 @@ def test_release_requires_owned_files_in_raw_source_head(tmp_path, monkeypatch):
     target = mirror(tmp_path)
     monkeypatch.setattr(VERIFY_TARGET, verified_target)
     with pytest.raises(Error, match="raw HEAD"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
 
 
 def test_scaffold_is_absent_private_and_outside_source(tmp_path, monkeypatch):  # noqa: PLR0915
@@ -759,7 +763,7 @@ def test_empty_distribution_releases_and_verifies_without_skills(tmp_path, monke
     git_commit(root)
     target = mirror(tmp_path)
     monkeypatch.setattr(VERIFY_TARGET, verified_target)
-    apply(release_plan(root, "org-private", mirror=target))
+    apply(release(root, target))
     assert not (target / "skills").exists()
     verifier = [sys.executable, str(VERIFY_SCRIPT), str(target)]
     assert subprocess.run(verifier, check=False).returncode == 0
@@ -826,7 +830,7 @@ def test_staging_release_is_unverified_and_verify_refuses(tmp_path, monkeypatch)
 
 def test_release_apply_commit_verify_sequence(tmp_path, monkeypatch):
     root, target = release_roots(tmp_path, monkeypatch)
-    plan = release_plan(root, "org-private", mirror=target)
+    plan = release(root, target)
     assert {change.path.name for change in plan.changes} == {"skills", "release-manifest.json"}
     apply(plan)
     manifest_text = (target / "release-manifest.json").read_text()
@@ -893,7 +897,7 @@ def test_release_verify_binds_mirror_owned_files(tmp_path, monkeypatch):
     root, target = release_roots(tmp_path, monkeypatch)
     (target / "README.md").write_bytes((root / "skills/deploy-safely/SKILL.md").read_bytes())
     git_commit(target, "rename source")
-    apply(release_plan(root, "org-private", mirror=target))
+    apply(release(root, target))
     (target / "README.md").unlink()
     git_commit(target, "hidden foreign deletion")
     with pytest.raises(Error, match="unexpected paths"):
@@ -912,7 +916,7 @@ def test_release_verify_requires_current_readiness(tmp_path, monkeypatch):
         match=r"release\.(approval|evidence) \.remek/skills/deploy-safely/"
         r"(approvals|evidence).*source and mirror unchanged",
     ):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
     with pytest.raises(
         Error,
         match=r"release\.(approval|evidence) \.remek/skills/deploy-safely/"
@@ -1026,8 +1030,8 @@ def test_first_release_requires_adoption_for_existing_skills(tmp_path, monkeypat
     (target / "skills" / "foreign.txt").write_text("foreign")
     git_commit(target, "foreign skills")
     with pytest.raises(Error, match="--adopt-existing"):
-        release_plan(root, "org-private", mirror=target)
-    assert release_plan(root, "org-private", mirror=target, adopt=True).changes
+        release(root, target)
+    assert release(root, target, adopt=True).changes
 
 
 def test_existing_manifest_must_belong_to_source(tmp_path, monkeypatch):
@@ -1038,7 +1042,7 @@ def test_existing_manifest_must_belong_to_source(tmp_path, monkeypatch):
     write_input(path, manifest)
     git_commit(target, "foreign manifest")
     with pytest.raises(Error, match="another source"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
 
 
 def test_managed_mirror_cannot_change_audience(tmp_path, monkeypatch):
@@ -1071,7 +1075,7 @@ def test_managed_mirror_cannot_change_audience(tmp_path, monkeypatch):
     monkeypatch.setattr(VERIFY_TARGET, unexpected_target_verification)
 
     with pytest.raises(Error, match="separate mirror and history"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
 
 
 @pytest.mark.parametrize("field", ("branch", "nameWithOwner", "hostname"))
@@ -1090,7 +1094,7 @@ def test_release_history_binds_complete_target_lineage(field, tmp_path, monkeypa
     git(target, "update-ref", "HEAD", forged)
     git(target, "config", "log.showSignature", "true")
     git(target, "config", "gpg.program", str(command))
-    assert release_plan(root, "org-private", mirror=target).changes == () and not marker.exists()
+    assert release(root, target).changes == () and not marker.exists()
     document = distribution_document()
     target_definition = document["target"]
     assert isinstance(target_definition, dict)
@@ -1110,7 +1114,7 @@ def test_release_history_binds_complete_target_lineage(field, tmp_path, monkeypa
         repository = target_definition["nameWithOwner"]
         git(target, "remote", "set-url", "origin", f"git@{host}:{repository}.git")
     with pytest.raises(Error, match="fresh mirror and history"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
 
 
 def test_target_lineage_excludes_remote_alias_and_transport(tmp_path, monkeypatch):
@@ -1126,7 +1130,7 @@ def test_target_lineage_excludes_remote_alias_and_transport(tmp_path, monkeypatc
     record_approval(tmp_path, root)
     git_commit(root, "renamed remote alias")
     git(target, "remote", "rename", "origin", "upstream")
-    apply(release_plan(root, "org-private", mirror=target))
+    apply(release(root, target))
     aliased = load_document(target / "release-manifest.json", kind="release-manifest")
     assert aliased["targetVerificationDigest"] == first["targetVerificationDigest"]
     assert aliased["remoteBinding"] != first["remoteBinding"]
@@ -1134,7 +1138,7 @@ def test_target_lineage_excludes_remote_alias_and_transport(tmp_path, monkeypatc
     with monkeypatch.context() as bounded:
         bounded.setattr(workflows_module, "_RELEASE_HISTORY_LIMIT", 1)
         with pytest.raises(Error, match="history exceeds its bound"):
-            release_plan(root, "org-private", mirror=target)
+            release(root, target)
 
     git(
         target,
@@ -1144,7 +1148,7 @@ def test_target_lineage_excludes_remote_alias_and_transport(tmp_path, monkeypatc
         HTTPS_REMOTE,
     )
     git(root, "commit", "--allow-empty", "-qm", "next source release")
-    apply(release_plan(root, "org-private", mirror=target))
+    apply(release(root, target))
     transported = load_document(target / "release-manifest.json", kind="release-manifest")
     assert transported["targetVerificationDigest"] == aliased["targetVerificationDigest"]
     assert transported["remoteBinding"] != aliased["remoteBinding"]
@@ -1156,7 +1160,7 @@ def test_prior_source_commit_must_be_an_ancestor(tmp_path, monkeypatch):
     git(root, "commit", "--allow-empty", "-qm", "current")
     target = mirror(tmp_path)
     monkeypatch.setattr(VERIFY_TARGET, verified_target)
-    apply(release_plan(root, "org-private", mirror=target))
+    apply(release(root, target))
     git_commit(target, "release")
     git(root, "checkout", "-qb", "sibling", base)
     git(root, "commit", "--allow-empty", "-qm", "sibling")
@@ -1166,7 +1170,7 @@ def test_prior_source_commit_must_be_an_ancestor(tmp_path, monkeypatch):
     write_input(path, manifest)
     git_commit(target, "prepared lineage")
     with pytest.raises(Error, match="not an ancestor"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
 
 
 def test_remote_and_push_overrides_refuse_before_materialization(tmp_path, monkeypatch):
@@ -1178,12 +1182,12 @@ def test_remote_and_push_overrides_refuse_before_materialization(tmp_path, monke
     ):
         git(target, "remote", "set-url", "origin", url)
         with pytest.raises(Error, match="remote URL"):
-            release_plan(root, "org-private", mirror=target)
+            release(root, target)
     valid = "git@github.com:business-a/private-skills.git"
     git(target, "remote", "set-url", "origin", valid)
     git(target, "config", "remote.origin.url", f"{valid}\n{valid}")
     with pytest.raises(Error, match="control"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
     git(target, "config", "remote.origin.url", valid)
     command, marker = execution_sentinel(tmp_path)
     for key in (
@@ -1198,13 +1202,13 @@ def test_remote_and_push_overrides_refuse_before_materialization(tmp_path, monke
     ):
         git(target, "config", "--local", key, str(command))
         with pytest.raises(Error, match="local Git configuration"):
-            release_plan(root, "org-private", mirror=target)
+            release(root, target)
         git(target, "config", "--local", "--unset-all", key)
     https = HTTPS_REMOTE
     git(target, "remote", "set-url", "origin", https)
     git(target, "config", "--local", "http.sslVerify", "false")
     with pytest.raises(Error, match="local Git configuration"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
     git(target, "config", "--local", "--unset-all", "http.sslVerify", check=False)
     assert not marker.exists()
     secret = "not-a-real-secret"
@@ -1220,25 +1224,25 @@ def test_remote_and_push_overrides_refuse_before_materialization(tmp_path, monke
         check=True,
     )
     with pytest.raises(Error, match="unsupported credentials") as caught:
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
     assert secret not in str(caught.value)
     assert not (target / "release-manifest.json").exists()
     git(target, "remote", "set-url", "origin", valid)
     (target / ".git/info/attributes").write_text("skills/** filter=evil\n")
     git(target, "config", "--local", "filter.evil.clean", str(command))
     with pytest.raises(Error, match="content filters"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
     assert not marker.exists()
 
 
 def test_identical_release_is_a_no_op(tmp_path, monkeypatch):
     root, target = release_roots(tmp_path, monkeypatch)
-    apply(release_plan(root, "org-private", mirror=target))
+    apply(release(root, target))
     git_commit(target, "release")
-    assert release_plan(root, "org-private", mirror=target).changes == ()
+    assert release(root, target).changes == ()
     git(target, "commit", "--allow-empty", "-qm", "foreign metadata")
     with pytest.raises(Error, match="one commit over"):
-        release_plan(root, "org-private", mirror=target)
+        release(root, target)
 
 
 @pytest.mark.parametrize(

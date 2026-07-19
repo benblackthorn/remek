@@ -4,5 +4,5 @@
   "lifecycle": "ready",
   "schema": "remek.1",
   "skill": "remek",
-  "stateReason": "Owner-authorized remek 1.0.4 installer compatibility and bounded hardening completed; evidence and release approval remain separate gates."
+  "stateReason": "Owner-authorized remek 1.0.5 scratch hygiene, audit redaction, repair and path consistency, init behavior, and evidence citation parity complete; evidence and release approval remain separate gates."
 }

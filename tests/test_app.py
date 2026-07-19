@@ -45,13 +45,28 @@ def execute_python(path, *arguments, cwd=None):
 
 def test_json_result_uses_remek_1(tmp_path, capsys):
     root = initialized(tmp_path)
-    assert run(["--root", str(root), "--json", "check"]) == 0
-    document = json.loads(capsys.readouterr().out)
-    assert document["schema"] == "remek.1"
-    assert document["exitCode"] == 0
-    assert run(["--root", str(root), "--json", "remove", "missing"]) == 2
-    document = json.loads(capsys.readouterr().out)
-    assert document["status"] == "refused" and document["exitCode"] == 2
+    for arguments, code, status in ((["check"], 0, "ok"), (["remove", "missing"], 2, "refused")):
+        assert run(["--root", str(root), "--json", *arguments]) == code
+        result = json.loads(capsys.readouterr().out)
+        assert result["schema"] == "remek.1"
+        assert result["status"] == status and result["exitCode"] == code
+
+
+def test_audit_never_echoes_credentials(tmp_path, capsys):
+    secret = "ghp_xxxxxxxxxxxxxxxxxxxx"
+    skill = tmp_path / "external"
+    skill.mkdir()
+    for text, flag in (
+        (f'---\nname: "{secret}"\ndescription: x\n---\nx', ()),
+        (
+            f"---\nname: external\ndescription: x\n{secret}: x\n{secret}: y\n---\nx",
+            ("--json",),
+        ),
+    ):
+        (skill / "SKILL.md").write_text(text)
+        assert run([*flag, "audit", str(skill)]) == 1
+        output = repr(capsys.readouterr())
+        assert secret not in output and "credential.github-token" in output
 
 
 def test_init_plan_show_apply_through_cli(tmp_path, capsys, monkeypatch):
@@ -78,7 +93,8 @@ def test_init_plan_show_apply_through_cli(tmp_path, capsys, monkeypatch):
     assert run(["apply", str(plan)]) == 0
     assert "final state changed" in capsys.readouterr().out
     assert (root / "remek.json").is_file()
-    assert ".DS_Store" in (root / ".gitignore").read_text()
+    ignore = (root / ".gitignore").read_text()
+    assert ".DS_Store" in ignore and "/.tmp/" in ignore
     occupied = tmp_path / "occupied"
     (occupied / "skills/foreign").mkdir(parents=True)
     assert run(["init", str(occupied)]) == 2
@@ -257,7 +273,7 @@ def test_wrapper_accepts_installer_projection_and_metadata(tmp_path):
         if path.is_file():
             path.chmod(0o644)
     completed = execute_python(skill / "scripts/cli.py", "--version")
-    assert completed.returncode == 0 and completed.stdout == "remek 1.0.4\n"
+    assert completed.returncode == 0 and completed.stdout == "remek 1.0.5\n"
 
 
 def test_repair_refuses_blockers_then_saves_plan(tmp_path, capsys):
