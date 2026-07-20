@@ -35,7 +35,7 @@
   "sameAs": ["https://github.com/benblackthorn/remek"],
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "macOS, native Linux (excluding WSL)",
-  "softwareRequirements": "Python 3.11 or newer; verified POSIX local storage; Git for scaffold and release checks; GitHub CLI for verified GitHub targets",
+  "softwareRequirements": "Python 3.11 or newer; verified POSIX local storage; Git for scaffold, staging, and release; GitHub CLI 2.90 or newer for installation and verified GitHub targets",
   "license": "https://opensource.org/license/mit",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -231,7 +231,7 @@ a:hover { color: var(--ink); }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(20px, 4.5vw, 56px); }
 
 /* anchored sections land with a little air above them */
-section[id], #session-term, #bookend-cmd { scroll-margin-top: 24px; }
+section[id], #session-term { scroll-margin-top: 24px; }
 
 /* skip link: visible on keyboard focus only */
 .skip {
@@ -402,16 +402,25 @@ html:not(.js) .hero-fine > span:first-child::after {
   .hero-ctas, .hero-fine { justify-content: center; }
   .hero-art { max-width: 620px; }
 }
+@media (max-width: 760px) {
+  .hero-fine-rest { flex-wrap: wrap; justify-content: center; }
+}
 @media (max-width: 600px) {
   .hero h1 {
     font-size: clamp(36px, calc(22.286px + 4.286vw), 48px);
   }
-  .hero-fine-rest { flex-wrap: wrap; justify-content: center; }
 }
 @media (max-width: 420px) {
   .hero-ctas { flex-wrap: nowrap; gap: 6px; }
   .hero-ctas .btn { padding-inline: 12px; }
   .hero-ctas .cta-arrow { display: none; }
+}
+@media (max-width: 320px) {
+  .hero-fine > span:first-child { white-space: normal; text-align: center; }
+  .hero-fine-rest { width: 100%; min-width: 0; }
+  .tree-node .tk { white-space: normal; overflow-wrap: anywhere; }
+  .problem h3,
+  .qs-step-head .g-name { white-space: normal; }
 }
 .hero-art { position: relative; container-type: inline-size; }
 
@@ -535,6 +544,34 @@ html:not(.js) .hero-fine > span:first-child::after {
 .section-head { margin-bottom: clamp(30px, 4vw, 48px); }
 .section-head.center { text-align: center; }
 
+/* The governance problem, stated as the questions an owner must
+   be able to answer. Typography carries the section; no cards. */
+.questions-intro {
+  max-width: 760px; margin: -16px 0 30px;
+  font-size: 18px; line-height: 1.72; color: var(--ink-3);
+}
+.questions-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--line);
+}
+.questions-list li {
+  position: relative; padding: 18px 28px 18px 28px;
+  border-bottom: 1px solid var(--line);
+  font: 400 clamp(18px, 2vw, 22px)/1.4 var(--font-display); color: var(--ink);
+}
+.questions-list li:nth-child(odd) { border-right: 1px solid var(--line); padding-left: 0; }
+.questions-list li:last-child { grid-column: 1 / -1; border-right: 0; padding-left: 0; }
+.questions-list li::before {
+  content: "?"; display: inline-block; margin-right: 10px;
+  font: 500 14px var(--font-mono); color: var(--accent);
+}
+@media (max-width: 720px) {
+  .questions-list { grid-template-columns: 1fr; }
+  .questions-list li,
+  .questions-list li:nth-child(odd) { border-right: 0; padding-inline: 0; }
+}
+
 /* ------------------------------------------------------------
    7. HOW IT WORKS: four scannable controls, left-aligned
    ------------------------------------------------------------ */
@@ -615,7 +652,8 @@ html:not(.js) .hero-fine > span:first-child::after {
   overflow-x: auto;                  /* long lines scroll, never wrap */
 }
 .terminal .body > div { white-space: nowrap; }
-.terminal .body .t-tool.t-ok { white-space: normal; }
+.terminal .body .t-tool.t-ok,
+.terminal .body .t-tool.t-err { white-space: normal; }
 .t-dim    { color: var(--term-dim); }
 .t-ink    { color: var(--term-ink); }
 .t-accent { color: var(--term-accent); }
@@ -805,6 +843,46 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
     max-width: 52ch; margin-top: 6px;
     font-size: 16px; line-height: 1.65;
   }
+}
+
+/* Inspectable proof: the project uses its own records, publishes a
+   real abridged receipt, and keeps verification dependency-free. */
+.proof-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.proof-card {
+  min-width: 0; padding: clamp(22px, 3vw, 30px);
+  background: var(--bg-raised); border: 1px solid var(--line); border-radius: 3px;
+}
+.proof-card h3 {
+  margin: 0 0 9px; font: 400 22px/1.3 var(--font-display); color: var(--ink);
+}
+.proof-card p { margin: 0; font-size: 16px; line-height: 1.7; color: var(--ink-3); }
+.proof-card p + p { margin-top: 12px; }
+.proof-card a { font-weight: 500; }
+.proof-wide { grid-column: 1 / -1; }
+.receipt {
+  margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px;
+}
+.receipt summary {
+  cursor: pointer; color: var(--accent);
+  font: 500 14px/1.5 var(--font-mono); list-style-position: outside;
+}
+.receipt pre,
+.audit-command {
+  margin: 14px 0 0; padding: 16px 18px;
+  background: var(--bg-inset); border: 1px solid var(--line-soft); border-radius: 3px;
+  font: 400 13px/1.7 var(--font-mono); color: var(--ink-2);
+  white-space: pre; overflow-x: auto;
+}
+.receipt + p { margin-top: 12px; }
+.audit-command { margin: 0; }
+@media (max-width: 760px) {
+  .proof-grid { grid-template-columns: 1fr; }
+  .proof-wide { grid-column: auto; }
+  .receipt pre,
+  .audit-command { white-space: pre-wrap; overflow-wrap: anywhere; }
 }
 
 /* ------------------------------------------------------------
@@ -1034,6 +1112,11 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
 @media (max-width: 383px) {
   .qs-code-bar .copy-label { display: none; }
 }
+@media (max-width: 320px) {
+  .qs-code-bar { flex-direction: column; align-items: stretch; gap: 6px; padding-inline: 10px; }
+  .qs-code-bar .copy-btn { align-self: flex-end; }
+  .cmd-tabs { flex-wrap: wrap; }
+}
 
 /* ------------------------------------------------------------
    12. FAQ: a native, exclusive details group. The browser owns
@@ -1083,17 +1166,6 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
   margin-top: .12em; font-size: 1.16em; line-height: 1;
   font-style: italic; color: var(--accent);
 }
-.bookend-install {
-  display: inline-flex; align-items: center; gap: 14px;
-  max-width: 100%;
-  background: var(--bg-raised); border: 1px solid var(--line);
-  border-radius: 3px; padding: 12px 14px 12px 20px;
-}
-.bookend-install code {
-  font: 400 14px/1.6 var(--font-mono); color: var(--ink-2);
-  white-space: nowrap; overflow-x: auto;
-}
-.bookend-install .copy-btn { position: static; flex: none; }
 .bookend-alt { margin: 16px 0 0; font: 400 14px/1.6 var(--font-mono); }
 .bookend-alt a { color: var(--muted); text-decoration: none; }
 .bookend-alt a:hover { color: var(--accent); }
@@ -1110,14 +1182,11 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
 .foot-links { display: flex; gap: 22px; flex-wrap: wrap; }
 .foot-links a { color: var(--ink-3); text-decoration: none; }
 .foot-links a:hover { color: var(--accent); }
+.foot-grid .current-release { color: inherit; text-decoration: none; }
+.foot-grid .current-release:hover { color: var(--accent); }
 .foot-sub { margin: 12px 0 0; font: 400 14px/1.7 var(--font-mono); color: var(--muted); }
 @media (max-width: 560px) {
   .qs-code pre { white-space: pre-wrap; overflow-x: hidden; overflow-wrap: anywhere; }
-  .bookend-install { flex-direction: column; align-items: stretch; width: 100%; padding: 14px 16px; }
-  .bookend-install code {
-    white-space: normal; overflow: visible; overflow-wrap: anywhere; text-align: left;
-  }
-  .bookend-install .copy-btn { align-self: center; }
 }
 </style>
 </head>
@@ -1179,7 +1248,7 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
     </div>
     <p class="hero-fine">
       <span>Python 3.11+ · standard library only</span>
-      <span class="hero-fine-rest"><span>offline</span><span>macOS &amp; native Linux</span><span>MIT</span></span>
+      <span class="hero-fine-rest"><span>offline by default</span><span>Git + GitHub CLI for release</span><span>macOS &amp; native Linux</span><span>MIT</span></span>
     </p>
   </div>
 
@@ -1218,6 +1287,24 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
     </div>
   </div>
 </section>
+
+<!-- ================= THE PROBLEM ================= -->
+<section class="section" id="questions"><div class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">The governance gap</p>
+    <h2>Can you answer these questions about every skill you ship?</h2>
+  </div>
+  <p class="questions-intro reveal">A folder and a Git commit are useful, but they do not answer the release questions on their own.</p>
+  <ul class="questions-list reveal">
+    <li>What exact skill bytes are we talking about?</li>
+    <li>What changed since the last accepted release?</li>
+    <li>Which results apply to those exact bytes?</li>
+    <li>Are those results still current—or stale?</li>
+    <li>Who declared approval for this release?</li>
+    <li>Is this for a private audience or the public?</li>
+    <li>Does the committed mirror still match the approved source?</li>
+  </ul>
+</div></section>
 
 <!-- ================= HOW IT WORKS ================= -->
 <section class="section" id="how"><div class="wrap">
@@ -1301,10 +1388,14 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
           <div class="t-line t-agent" style="--d:7.8s"><span class="t-who">AGENT</span><span class="t-message">The plan reconstructs exactly. Nothing has changed yet. Apply?</span></div>
           <div class="t-line t-you" style="--d:8.6s"><span class="t-who">YOU</span><span class="t-message">Apply.</span></div>
           <div class="t-line t-tool" style="--d:9.3s"><span class="t-type t-type-fast" style="--d:9.4s">./remek apply /tmp/accept.json</span></div>
-          <div class="t-line t-agent" style="--d:10.3s"><span class="t-who">AGENT</span><span class="t-message">Applied. The reviewed skill is draft and source-only.<span class="t-caret" aria-hidden="true"></span></span></div>
+          <div class="t-line t-agent" style="--d:10.3s"><span class="t-who">AGENT</span><span class="t-message">Applied. The reviewed skill is draft and source-only.</span></div>
+          <div class="t-line t-ind t-dim" style="--d:11s">later: candidate edited after the plan was saved</div>
+          <div class="t-line t-tool" style="--d:11.6s"><span class="t-type t-type-fast" style="--d:11.7s">./remek apply /tmp/accept.json</span></div>
+          <div class="t-line t-tool t-err" style="--d:12.6s">apply: plan differs at plan.bindings.candidate; nothing applied; recreate and review</div>
+          <div class="t-line t-tool t-err" style="--d:13.1s">&nbsp;&nbsp;ERROR plan.stale: plan differs at plan.bindings.candidate; nothing applied; recreate and review<span class="t-caret" aria-hidden="true"></span></div>
         </div>
       </div>
-      <p class="terminal-caption">what you saw is what landed.</p>
+      <p class="terminal-caption">what you saw is what landed—or drift left everything untouched.</p>
     </div>
   </div>
 
@@ -1358,6 +1449,61 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
   </div>
 </div></section>
 
+<!-- ================= INSPECTABLE PROOF ================= -->
+<section class="section" id="proof"><div class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">Inspectable proof</p>
+    <h2>Trust artifacts you can read yourself</h2>
+  </div>
+  <div class="proof-grid reveal">
+    <article class="proof-card">
+      <h3>remek governs itself</h3>
+      <p>Its own governed records include policy, provenance, positive and contrastive cases, the retained design brief, and evidence receipts naming the host and version.</p>
+      <p><a href="https://github.com/benblackthorn/remek/tree/main/.remek/skills/remek">Inspect remek’s governed records →</a></p>
+    </article>
+    <article class="proof-card">
+      <h3>Small enough to actually review</h3>
+      <p>The Python 3.11+ core is standard-library only. CI enforces ceilings of 125,000 tracked tokens, 70 files, 250 collected tests, one schema family, and zero third-party runtime dependencies.</p>
+      <p><a href="https://github.com/benblackthorn/remek/blob/main/AGENTS.md#fixed-ceilings">Read the enforced ceilings →</a></p>
+    </article>
+    <article class="proof-card proof-wide">
+      <h3>A real byte-bound evidence record</h3>
+      <p>This abridged receipt is from remek’s own governed source. The candidate digest, evaluator profile, and per-case pass counts travel together; changing a bound input makes the proof stale.</p>
+      <details class="receipt">
+        <summary>View abridged <span class="inline-code">remek.1</span> receipt</summary>
+<pre>{
+  "kind": "eval-receipt",
+  "skill": "remek",
+  "candidate": "9f90410140f6360c0fa9e09b2045a96b3e9238e5e1666db37d1f1d4acd036966",
+  "evidenceKind": "behavior",
+  "profile": {
+    "name": "Codex desktop gpt-5.6-sol ultra",
+    "version": "gpt-5.6-sol / Codex 26.715.31925+5551"
+  },
+  "results": [
+    { "caseId": "release-refusal", "passCount": 3 },
+    { "caseId": "audit", "passCount": 3 }
+  ]
+}</pre>
+      </details>
+      <p><a href="https://github.com/benblackthorn/remek/blob/main/.remek/skills/remek/evidence/6b426ede6c85234ee1b86998178cd3ea0e6d10e5b2e26fe336f11e79f10e390b.json">Open the complete receipt →</a></p>
+    </article>
+    <article class="proof-card">
+      <h3>Verify a released mirror yourself</h3>
+      <p>The dependency-free consumer verifier checks the materialized skill payload against <span class="inline-code">release-manifest.json</span>. It needs no private source or governance records.</p>
+      <p><a href="https://github.com/benblackthorn/remek/blob/main/tools/verify_release_manifest.py">Get the verifier →</a></p>
+      <pre class="audit-command">python3 tools/verify_release_manifest.py /path/to/mirror</pre>
+    </article>
+    <article class="proof-card">
+      <h3>Audit any skill before you install it</h3>
+      <p>Point remek at a skill folder for read-only findings and repair hints. No governed repository is required; candidate content is never executed.</p>
+      <pre class="audit-command">python3 -I -S -B \
+  /path/to/remek/scripts/cli.py \
+  audit /path/to/skill</pre>
+    </article>
+  </div>
+</div></section>
+
 <!-- ================= QUICK START ================= -->
 <section class="section" id="start"><div class="wrap">
   <div class="section-head reveal">
@@ -1371,7 +1517,7 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
         <span class="qs-label">Agent setup</span>
         <button class="copy-control copy-btn" type="button" data-copy="#agent-install-prompt" data-copy-text aria-label="Copy agent setup prompt" aria-live="polite"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span><span class="copy-label" aria-hidden="true"><span class="copy-label-state copy-label-default">Copy</span><span class="copy-label-state copy-label-success">Copied</span><span class="copy-label-state copy-label-error">Retry</span></span></button>
       </div>
-      <blockquote id="agent-install-prompt">"Install remek for me with <span class="inline-code">gh skill install benblackthorn/remek remek --scope user</span>. Run it interactively and let me choose the agent when GitHub CLI asks."</blockquote>
+      <blockquote id="agent-install-prompt">"Use GitHub CLI 2.90 or newer. Resolve remek’s latest published GitHub release once, preview that exact tag, install pinned to the same tag for my user account, then verify the installed CLI version matches."</blockquote>
     </aside>
 
     <div class="qs-steps">
@@ -1379,17 +1525,21 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
         <div class="qs-step-head"><span class="g-num" aria-hidden="true">1</span><h3 class="g-name">Install</h3></div>
         <div class="qs-code">
           <div class="qs-code-bar">
-            <div class="cmd-tabs" role="group" aria-label="Installer"><button class="cmd-tab" type="button" aria-pressed="true" data-cmd="gh skill install benblackthorn/remek remek --scope user">gh skill</button><button class="cmd-tab" type="button" aria-pressed="false" data-cmd="npx skills add benblackthorn/remek -g">npx · public</button></div>
+            <div class="cmd-tabs" role="group" aria-label="Installer"><button class="cmd-tab" type="button" aria-pressed="true" data-cmd="gh --version&#10;REMEK_VERSION=&quot;$(gh release view --repo benblackthorn/remek --json tagName --jq .tagName)&quot;&#10;gh skill preview benblackthorn/remek &quot;remek@$REMEK_VERSION&quot;&#10;gh skill install benblackthorn/remek remek --pin &quot;$REMEK_VERSION&quot; --agent codex --scope user&#10;python3 -I -S -B &quot;$HOME/.codex/skills/remek/scripts/cli.py&quot; --version">gh skill</button><button class="cmd-tab" type="button" aria-pressed="false" data-cmd="npx skills add benblackthorn/remek -g">npx · public</button></div>
             <button class="copy-control copy-btn" type="button" data-copy="#qs-install" aria-label="Copy install command" aria-live="polite"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span><span class="copy-label" aria-hidden="true"><span class="copy-label-state copy-label-default">Copy</span><span class="copy-label-state copy-label-success">Copied</span><span class="copy-label-state copy-label-error">Retry</span></span></button>
           </div>
-          <pre id="qs-install">gh skill install benblackthorn/remek remek --scope user</pre>
+          <pre id="qs-install">gh --version
+REMEK_VERSION="$(gh release view --repo benblackthorn/remek --json tagName --jq .tagName)"
+gh skill preview benblackthorn/remek "remek@$REMEK_VERSION"
+gh skill install benblackthorn/remek remek --pin "$REMEK_VERSION" --agent codex --scope user
+python3 -I -S -B "$HOME/.codex/skills/remek/scripts/cli.py" --version</pre>
         </div>
         <noscript><p class="qs-cap">Public alternative: <span class="inline-code">npx skills add benblackthorn/remek -g</span></p></noscript>
-        <p class="qs-cap"><span class="inline-code">gh skill</span> is public preview. <span class="inline-code">npx skills</span> documents anonymous telemetry and opt-outs but no complete private-repository contract. The source repository must be public or accessible.</p>
+        <p class="qs-cap">Requires GitHub CLI 2.90+. The release query resolves the latest published tag once; preview and install reuse that exact value. The final command should match <span class="inline-code">$REMEK_VERSION</span> without its leading <span class="inline-code">v</span>. For Claude Code, use <span class="inline-code">--agent claude-code</span> and verify under <span class="inline-code">$HOME/.claude/skills/</span>. <span class="inline-code">npx skills</span> is a public alternative but has no complete private-repository contract.</p>
       </div>
       <div class="qs-step">
         <div class="qs-step-head"><span class="g-num" aria-hidden="true">2</span><h3 class="g-name">Initialize</h3></div>
-        <p class="qs-body">Tell your agent: <em class="trigger">"Initialize a governed private skills source in an existing private Git repository at an absolute path I confirm. Show and explain the plan before <span class="trigger-tail">applying it."<button class="copy-control copy-inline" type="button" data-copy-value="Initialize a governed private skills source in an existing private Git repository at an absolute path I confirm. Show and explain the plan before applying it." data-copy-success="Initialization prompt copied" aria-label="Copy initialization prompt" aria-live="polite" title="Copy initialization prompt"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span></button></span></em></p>
+        <p class="qs-body">Tell your agent: <em class="trigger">"Set up my private governed skills source with remek. Discover my existing conventions and repositories first, then confirm the name and absolute path before creating <span class="trigger-tail">anything."<button class="copy-control copy-inline" type="button" data-copy-value="Set up my private governed skills source with remek. Discover my existing conventions and repositories first, then confirm the name and absolute path before creating anything." data-copy-success="Initialization prompt copied" aria-label="Copy initialization prompt" aria-live="polite" title="Copy initialization prompt"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span></button></span></em></p>
         <p class="qs-cap">remek never creates, commits, or pushes the repository.</p>
       </div>
       <div class="qs-step">
@@ -1439,11 +1589,15 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
     </details>
     <details name="faq">
       <summary>Can remek govern skills inside an existing project?</summary>
-      <div class="faq-c"><div><p>Yes. Project mode governs an exact selected set under <span class="inline-code">.agents/skills/</span> and leaves installer-managed or otherwise foreign neighbors alone. Existing project skills still require an explicit reviewed import before remek owns them.</p></div></div>
+      <div class="faq-c"><div><p>Yes. Project mode governs an exact selected set under <span class="inline-code">.agents/skills/</span> and leaves installer-managed or otherwise foreign neighbors alone. Existing project skills still require an explicit reviewed import before remek owns them. Managed release integrity checks inherit the enclosing repository’s full Git object-database cost under a 30-second bound; a very large monorepo may need a dedicated governed source.</p></div></div>
     </details>
     <details name="faq">
       <summary>Which coding agents can I use, and do I need the terminal?</summary>
       <div class="faq-c"><div><p>remek uses the Agent Skills format and also has a plain CLI. After installation, ask in plain language; your coding agent can run the CLI and explain each plan. An installer's host list shows placement, not identical routing or behavior. The recorded routing evidence is host- and version-specific; verify the host and version you intend to use.</p></div></div>
+    </details>
+    <details name="faq">
+      <summary>Are remek digests signatures?</summary>
+      <div class="faq-c"><div><p>No. SHA-256 digests identify exact bytes and bound context; they are not signatures and remek holds no signing keys. If your organization requires signing, create an externally governed signed commit—or sign a tag pointing to the verified commit—before <span class="inline-code">release verify</span>. Signing replaces neither current evidence nor release approval.</p></div></div>
     </details>
     <details name="faq">
       <summary>Where do my skills live? Does remek upload anything?</summary>
@@ -1471,11 +1625,8 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
 <!-- ================= BOOKEND ================= -->
 <section class="section bookend"><div class="wrap reveal">
   <h2><span class="bookend-lead">Your skills are an asset.</span><br><em>Govern them like one.</em></h2>
-  <div class="bookend-install">
-    <code id="bookend-cmd">gh skill install benblackthorn/remek remek --scope user</code>
-    <button class="copy-control copy-btn" type="button" data-copy="#bookend-cmd" aria-label="Copy install command" aria-live="polite"><span class="copy-icon" aria-hidden="true"><svg class="copy-glyph copy-glyph-copy" viewBox="0 0 24 24"><use href="#icon-copy"></use></svg><svg class="copy-glyph copy-glyph-check" viewBox="0 0 24 24"><use href="#icon-check"></use></svg></span><span class="copy-label" aria-hidden="true"><span class="copy-label-state copy-label-default">Copy</span><span class="copy-label-state copy-label-success">Copied</span><span class="copy-label-state copy-label-error">Retry</span></span></button>
-  </div>
-  <p class="bookend-alt"><a href="https://github.com/benblackthorn/remek#readme">Read the workflow and boundaries on GitHub →</a></p>
+  <a class="btn" href="#start">Preview, pin, and verify the latest release ↑</a>
+  <p class="bookend-alt"><a href="https://github.com/benblackthorn/remek#preview-install-and-start">Read the workflow and boundaries on GitHub →</a></p>
 </div></section>
 
 </main>
@@ -1483,7 +1634,7 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
 <!-- ================= FOOTER ================= -->
 <footer class="site-foot"><div class="wrap">
   <div class="foot-grid">
-    <span>remek · MIT · built by Benedek Blackthorn</span>
+    <span>remek · MIT · <a class="current-release" href="https://github.com/benblackthorn/remek/releases/latest">current: latest release</a> · built by Benedek Blackthorn</span>
     <div class="foot-links">
       <a href="https://github.com/benblackthorn/remek">GitHub</a>
       <a href="https://agentskills.io/">Agent Skills format</a>
