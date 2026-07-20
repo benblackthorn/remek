@@ -5,6 +5,9 @@
 remek is a local-first governance toolkit for **turning completed
 [Agent Skills](https://agentskills.io/) into reviewed, releasable artifacts**.
 
+[Website](https://remek.dev/) ·
+[Browse public skills released with remek](https://github.com/benblackthorn/agent-skills)
+
 It sits between authoring and publishing, with each layer owning a distinct part
 of the workflow:
 
@@ -217,10 +220,14 @@ authenticated target visibility. Public release also requires separate history,
 blocked private disclosure, `public-eligible` policy, irreversibility review,
 and an exact candidate/provenance license match. Credentials cannot be excepted.
 
-This repository dogfoods governed-source intake and evidence: its
+This repository dogfoods the source side: its
 [governed remek records](.remek/skills/remek/) contain the current policy,
-provenance, retained design, cases, and evidence. No self-issued remek
-distribution approval is claimed; managed mirrors omit the governance tree.
+provenance, retained design, cases, and evidence. For a consumer-side example,
+[`benblackthorn/agent-skills`](https://github.com/benblackthorn/agent-skills)
+exposes selected installable skills. Its
+[release manifest](https://github.com/benblackthorn/agent-skills/blob/main/release-manifest.json)
+binds the current projected skill payload; private governance records remain in its
+separate source. No self-issued remek distribution approval is claimed.
 
 ### Preserve last-known-good behavior through refusal
 
