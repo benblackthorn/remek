@@ -1,0 +1,30 @@
+# remek
+
+> remek is an open-source, local-first governance and release layer for completed Agent Skills.
+
+remek binds provenance, policy, evaluation evidence, approval, exact change plans,
+and release manifests to exact skill bytes. It does not author skills, execute
+candidates, run providers, install consumer copies, commit, push, publish, or
+change repository visibility.
+
+## Documentation
+
+- [Website](https://remek.dev/): Product overview, workflow, proof, and installation.
+- [Source repository](https://github.com/benblackthorn/remek): Source code, tests, documentation, and releases.
+- [README](https://github.com/benblackthorn/remek/blob/main/README.md): User-facing setup and workflow reference.
+- [Design](https://github.com/benblackthorn/remek/blob/main/docs/design.md): Product outcomes and semantic ownership.
+- [Contracts](https://github.com/benblackthorn/remek/blob/main/docs/contracts.md): Formats, lifecycle, and observable behavior.
+- [Threat model](https://github.com/benblackthorn/remek/blob/main/docs/threat-model.md): Trust boundaries and supported environments.
+- [Latest release](https://github.com/benblackthorn/remek/releases/latest): Current published remek version.
+
+## Inspectable proof
+
+- [Governed remek records](https://github.com/benblackthorn/remek/tree/main/.remek/skills/remek): Public first-party governance records.
+- [Public Agent Skills catalog](https://github.com/benblackthorn/agent-skills): Consumer-facing skills released from a separate governed source.
+- [Catalog release manifest](https://github.com/benblackthorn/agent-skills/blob/main/release-manifest.json): Exact projected payload and lineage binding.
+- [Standalone manifest verifier](https://github.com/benblackthorn/remek/blob/main/tools/verify_release_manifest.py): Dependency-free released-mirror verification.
+
+## Optional
+
+- [Agent Skills specification](https://agentskills.io/): The open format remek governs and releases.
+- [MIT license](https://github.com/benblackthorn/remek/blob/main/LICENSE): License for remek.
