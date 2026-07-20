@@ -374,9 +374,14 @@ html:not(.js) .qs-code-bar { display: none; }
 .hero h1 em { font-style: italic; color: var(--accent); }
 .hero .lede { margin: 0 0 34px; max-width: 560px; font-size: clamp(17px, 1.6vw, 19px); line-height: 1.6; color: var(--ink-2); }
 .hero-ctas { display: flex; flex-wrap: nowrap; gap: 14px; align-items: center; }
+.hero-example {
+  margin: 16px 0 0;
+  font: 500 14px/1.6 var(--font-mono); color: var(--ink-3);
+}
+.hero-example a { color: var(--accent); text-decoration-thickness: 1px; }
 .hero-fine {
   display: flex; flex-wrap: wrap; gap: 2px 18px;
-  margin-top: 30px; font: 400 14px/1.7 var(--font-mono); color: var(--ink-3);
+  margin-top: 14px; font: 400 14px/1.7 var(--font-mono); color: var(--ink-3);
 }
 .hero-fine > span { white-space: nowrap; }
 .hero-fine > span:first-child { position: relative; }
@@ -1247,6 +1252,7 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
       <a class="btn hero-quick" href="#start">Quick start<span class="cta-arrow" aria-hidden="true"> ↓</span></a>
       <a class="btn btn-ghost" href="https://github.com/benblackthorn/remek">View on GitHub</a>
     </div>
+    <p class="hero-example">See remek in practice: <a href="https://github.com/benblackthorn/agent-skills">browse public Agent Skills →</a></p>
     <p class="hero-fine">
       <span>Python 3.11+ · standard library only</span>
       <span class="hero-fine-rest"><span>offline by default</span><span>macOS &amp; native Linux</span><span>MIT</span></span>
@@ -1490,8 +1496,10 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
       <p><a href="https://github.com/benblackthorn/remek/blob/main/.remek/skills/remek/evidence/6b426ede6c85234ee1b86998178cd3ea0e6d10e5b2e26fe336f11e79f10e390b.json">Open the complete receipt →</a></p>
     </article>
     <article class="proof-card">
-      <h3>Verify a released mirror yourself</h3>
-      <p>The dependency-free consumer verifier checks the materialized skill payload against <span class="inline-code">release-manifest.json</span>. It needs no private source or governance records.</p>
+      <h3>Inspect a real released mirror</h3>
+      <p>agent-skills is a public catalog projection prepared with remek. Its manifest binds the materialized skill payload without exposing private source or governance records.</p>
+      <p><a href="https://github.com/benblackthorn/agent-skills">Browse the catalog →</a><br>
+        <a href="https://github.com/benblackthorn/agent-skills/blob/main/release-manifest.json">Inspect its manifest →</a></p>
       <p><a href="https://github.com/benblackthorn/remek/blob/main/tools/verify_release_manifest.py">Get the verifier →</a></p>
       <pre class="audit-command">python3 tools/verify_release_manifest.py /path/to/mirror</pre>
     </article>
@@ -1638,6 +1646,7 @@ python3 -I -S -B "$HOME/.codex/skills/remek/scripts/cli.py" --version</pre>
     <span>remek · MIT · <a class="current-release" href="https://github.com/benblackthorn/remek/releases/latest">current: latest release</a> · built by Benedek Blackthorn</span>
     <div class="foot-links">
       <a href="https://github.com/benblackthorn/remek">GitHub</a>
+      <a href="https://github.com/benblackthorn/agent-skills">Public skills</a>
       <a href="https://agentskills.io/">Agent Skills format</a>
     </div>
   </div>
