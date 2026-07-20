@@ -365,6 +365,7 @@ html:not(.js) .qs-code-bar { display: none; }
   gap: clamp(36px, 5vw, 64px); align-items: center;
   padding-top: clamp(52px, 8vw, 88px); padding-bottom: clamp(48px, 7vw, 76px);
 }
+.hero-copy { min-width: 0; }
 .hero h1 {
   margin: 0 0 26px;
   font: 400 clamp(48px, 4.35vw, 62px)/1.06 var(--font-display);
@@ -387,7 +388,7 @@ html:not(.js) .hero-fine > span:first-child::after {
 @media (max-width: 517px) {
   html:not(.js) .hero-fine > span:first-child::after { content: none; }
 }
-.hero-fine-rest { display: inline-flex; }
+.hero-fine-rest { display: inline-flex; flex-wrap: wrap; max-width: 100%; }
 .hero-fine-rest span + span::before {
   content: "·"; display: inline-block; margin: 0 10px; color: var(--muted);
 }
@@ -403,7 +404,7 @@ html:not(.js) .hero-fine > span:first-child::after {
   .hero-art { max-width: 620px; }
 }
 @media (max-width: 760px) {
-  .hero-fine-rest { flex-wrap: wrap; justify-content: center; }
+  .hero-fine-rest { justify-content: center; }
 }
 @media (max-width: 600px) {
   .hero h1 {
@@ -1248,7 +1249,7 @@ html.motion-ready .play .t-type { animation: t-type 1.2s steps(38, end) forwards
     </div>
     <p class="hero-fine">
       <span>Python 3.11+ · standard library only</span>
-      <span class="hero-fine-rest"><span>offline by default</span><span>Git + GitHub CLI for release</span><span>macOS &amp; native Linux</span><span>MIT</span></span>
+      <span class="hero-fine-rest"><span>offline by default</span><span>macOS &amp; native Linux</span><span>MIT</span></span>
     </p>
   </div>
 
