@@ -203,36 +203,3 @@ def parse_skill(text: str) -> tuple[dict[str, object], str]:
     _validate(text)
     lines, body = _split(text)
     return _parse(lines), body
-
-
-def render_skill(fields: dict[str, object], body: str) -> bytes:
-    order = ("name", "description", "license", "compatibility", "metadata", "allowed-tools")
-    if set(fields) - set(order):
-        raise FrontmatterError("frontmatter contains an unsupported field")
-    lines = ["---"]
-    for key in order:
-        if key not in fields:
-            continue
-        value = fields[key]
-        if key == "compatibility" and (not isinstance(value, str) or not 1 <= len(value) <= 500):
-            raise FrontmatterError("compatibility must be a 1 to 500 character string")
-        if key == "metadata":
-            if not isinstance(value, dict) or any(
-                not isinstance(item_key, str) or not isinstance(item, str)
-                for item_key, item in value.items()
-            ):
-                raise FrontmatterError("metadata must be a string mapping")
-            lines.append("metadata:")
-            lines.extend(
-                f"  {item_key}: {json.dumps(value[item_key], ensure_ascii=False)}"
-                for item_key in sorted(value)
-            )
-        else:
-            if not isinstance(value, str):
-                raise FrontmatterError(f"{key} must be a string")
-            lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
-    canonical_body = body.rstrip("\n") + "\n"
-    text = "\n".join([*lines, "---", canonical_body])
-    if parse_skill(text) != (fields, canonical_body):
-        raise FrontmatterError("canonical frontmatter did not round-trip")
-    return text.encode()

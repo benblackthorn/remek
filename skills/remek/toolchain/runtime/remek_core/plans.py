@@ -193,18 +193,12 @@ def _keys(values: JSONObject, expected: set[str], command: str) -> None:
         raise Error("plan.inputs", f"{command} plan inputs are invalid")
 
 
-def reconstruct_plan(loaded: LoadedPlan, bundle: Path) -> Plan:  # noqa: PLR0911
+def reconstruct_plan(loaded: LoadedPlan, bundle: Path) -> Plan:
     from .workflows import (  # noqa: PLC0415
-        accept_plan,
-        approve_record_plan,
-        disclosure_accept_plan,
-        distribution_accept_plan,
         eval_record_plan,
+        review_record_plan,
         init_plan,
         release_plan,
-        remove_plan,
-        repair_plan,
-        retire_plan,
         update_plan,
     )
 
@@ -218,32 +212,13 @@ def reconstruct_plan(loaded: LoadedPlan, bundle: Path) -> Plan:  # noqa: PLR0911
             _input_text(loaded.generated, "repositoryId"),
             project=_input_bool(inputs, "project"),
         )
-    if command == "accept":
-        _keys(inputs, {"workspace"}, command)
-        return accept_plan(root, _input_path(inputs, "workspace"))
-    if command in {"distribution-accept", "disclosure-accept"}:
-        _keys(inputs, {"source"}, command)
-        function = (
-            distribution_accept_plan
-            if command.startswith("distribution")
-            else disclosure_accept_plan
-        )
-        return function(root, _input_path(inputs, "source"))
-    if command in {"retire", "remove"}:
-        _keys(inputs, {"skill", "reason"} if command == "retire" else {"skill"}, command)
-        if command == "retire":
-            return retire_plan(root, _input_text(inputs, "skill"), _input_text(inputs, "reason"))
-        return remove_plan(root, _input_text(inputs, "skill"))
     if command == "eval-record":
         _keys(inputs, {"skill", "evidence"}, command)
         return eval_record_plan(root, _input_text(inputs, "skill"), _input_path(inputs, "evidence"))
-    if command == "approve-record":
-        _keys(inputs, {"distribution", "skill", "approval"}, command)
-        return approve_record_plan(
-            root,
-            _input_text(inputs, "distribution"),
-            _input_text(inputs, "skill"),
-            _input_path(inputs, "approval"),
+    if command == "review-record":
+        _keys(inputs, {"distribution", "review"}, command)
+        return review_record_plan(
+            root, _input_text(inputs, "distribution"), _input_path(inputs, "review")
         )
     if command == "release":
         _keys(inputs, {"distribution", "mirror", "staging", "adopt"}, command)
@@ -262,9 +237,6 @@ def reconstruct_plan(loaded: LoadedPlan, bundle: Path) -> Plan:  # noqa: PLR0911
             staging=Path(staging) if isinstance(staging, str) else None,
             adopt=_input_bool(inputs, "adopt"),
         )
-    if command == "repair":
-        _keys(inputs, set(), command)
-        return repair_plan(root)
     if command == "update":
         _keys(inputs, set(), command)
         return update_plan(root, bundle)

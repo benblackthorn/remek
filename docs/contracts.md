@@ -1,113 +1,220 @@
 # Contracts
 
-Canonical documents are bounded, sorted, newline-terminated UTF-8 with exact
-`kind` and `"schema": "remek.1"`; owned JSON uses two-space indentation. The
-compact toolchain manifest omits itself. Digests are SHA-256 identities, not
-signatures. Invalid or noncanonical input refuses.
+## Documents and storage
 
-## Repository layout
+Normal documents use `"schema":"remek.2"` and an exact expected `kind`. Duplicate
+keys, invalid UTF-8, non-finite numbers, excessive nesting, and unknown semantic
+fields refuse. Authored `repository`, `skill-record`, `distribution`, and
+`disclosure-policy` documents accept arbitrary JSON whitespace/key order and are
+never automatically reformatted. Set-like lists are sorted and unique; case
+order is significant. Immutable `evaluation` and `release-review` records,
+`operation-plan`, and `release-manifest` use sorted two-space JSON with one final
+newline. The compact `toolchain-manifest` omits itself.
 
-`remek.json` names the repository, payload root, and governed skills. `.remek/`
-holds runtime, policy, provenance, cases, retained source, receipts,
-distributions, and disclosure. The producer embeds its runtime under
-`skills/remek/toolchain/` and governs only `skills/remek/`. Foreign neighbors
-are never pruned.
+The trusted caller selects the kind and its limits before reading hostile bytes:
 
-## Plans and mutation
+| Document | Maximum bytes | Maximum JSON values |
+| --- | --- | --- |
+| Ordinary authored record | 64 KiB | 4,096 |
+| `skill-record` | 256 KiB | 4,096 |
+| `evaluation` | 512 KiB | 4,096 |
+| `release-review` | 512 KiB | 16,384 |
+| `operation-plan` and other bounded machine documents | 2 MiB | 4,096 |
+| Rendered `command-result` | 1 MiB | 32,768 |
 
-An `operation-plan` binds intent, inputs, hostile sources, toolchain, path states,
-and digest without payload or diff. `apply` must reconstruct it exactly.
-Workspaces bind origin, retained source, candidate, policy, provenance, and cases;
-receipts are forbidden. Apply output distinguishes an unchanged refusal, a
-committed change, a restored prior state, and cleanup or ambiguous residue.
+Maximum nesting is 12. The larger result budget applies only to trusted rendering;
+parsing a `command-result` still has 4,096 values. Per-skill governance is 4 MiB
+with at most 128 evidence files; source governance is 16 MiB including global
+reviews. Filesystem traversal has separate bounded depth/entry/byte checks.
+No limit can be raised by a document's self-declared kind.
 
-## Skills, policy, and provenance
+`remek.json` records `repositoryId`, `skillsRoot`, and sorted `governedSkills`.
+Consumer runtime is `.remek/toolchain`; the producer uses only
+`skills/remek/toolchain` and governs exactly `skills/remek`. Exactly one layout is
+accepted. `.remek/distributions/ID.json`, `.remek/disclosure-policy.json`,
+`.remek/skills/NAME/skill.json`, optional `sources/`, `evidence/HASH.json`, and
+`.remek/reviews/HASH.json` hold governance. Unknown governance paths fail; foreign
+neighbors are preserved. Missing active review files and malformed historical
+records fail without hiding an otherwise valid skill.
 
-Payloads are canonical `SKILL.md` UTF-8 regular-file trees, a narrower file-based
-profile of the open format. Binary assets, links, special files, bytecode, empty
-directories, remek metadata, credentials, and unresolved core templates refuse;
-script templates warn. Runtime-only code or class definitions, live dynamic
-resources, and remote sources require a reviewed file snapshot; remek binds the
-snapshot, not live state. Limits: 256 KiB `SKILL.md`, 2 MiB per other file, 256
-files, 8 MiB, 75,000 lexical tokens, and 128 skills. Routing needs positive and
-contrastive prompts; behavior cases need one to twelve bounded expectations.
-Policy binds lifecycle, exposure, and reason. Provenance binds retained source,
-upstream, and rights; imports and releases require completeness.
-Public release also requires a nonempty candidate frontmatter `license` exactly
-equal to the reviewed provenance license. Private workflows do not.
+## Authored skill and payload
 
-## Distributions, disclosure, evidence, and approvals
+A `skill-record` has `skill`, `exposure`, `provenance`, and
+`cases:{routing:[...],behavior:[...]}`. Provenance has `origin` (`captured`,
+`designed`, or `imported`), `source`, `sourceNote`, `upstreamRepository`,
+`upstreamRef`, `rights`, `rightsBasis`, and `license`. `source` is null or
+`{path:"sources/RELATIVE",type:"file"|"tree",digest:SHA256}` under this skill's
+private governance. File descriptors hash exact bytes; tree descriptors use the
+retained candidate tree identity. No links or path escapes are accepted.
+`sourceNote` is nonblank and at most 1,000 characters. A missing original must be
+stated truthfully, never reconstructed as invented provenance.
 
-A distribution binds audience, skills, GitHub target, delivery, profiles, and
-disclosure. Public requires `PUBLIC` and blocked private material; private
-requires `PRIVATE`; `INTERNAL` is unsupported. Release forbids `smoke`; manual
-and external profiles need three trials per case.
+Payloads implement the deliberately narrower `remek-text` profile: UTF-8 regular
+files with supported `SKILL.md` frontmatter. CRLF is accepted and preserved;
+parsing never rewrites bytes. Frontmatter supports the documented scalar fields
+and bounded scalar `metadata`; arbitrary YAML, binary assets, links, special
+files, bytecode, empty directories, private governance documents, and credentials
+refuse. Limits are 256 KiB for `SKILL.md`, 2 MiB per other file, 256 files, 8 MiB,
+75,000 lexical tokens, and 128 governed skills. Audit never executes code.
 
-Disclosure ids immutably bind class, constrained match, and value; omission
-creates a tombstone. Credentials cannot be excepted; other exceptions bind id
-and content digest.
+Empty case sets are valid for private source use and warn. Nonempty sets have at
+most 50 unique cases. Routing cases contain `id`, `prompt`, `shouldActivate` and
+need both positive and contrastive cases. Behavior cases contain `id`, `prompt`,
+and one to twelve unique bounded `expectations`. Releases require both sets and
+current evidence for each selected skill. Public payload `license` must exactly
+equal reviewed provenance.
 
-Cases and routing catalog have separate digests. Profiles bind host, claim, run
-configuration, trials, and threshold; changing evaluation inputs needs new proof.
-Evidence binds bytes, cases, context, full profile, ordered results, and one
-private report digest. It does not freeze unbound APIs, databases, MCP sources,
-dynamic resources, or host caches; material inputs belong in the external report
-by digest or stated limitation. Every case must pass; failures persist. Stored
-receipts and approvals must first be intrinsically valid independent of current
-state; contextual validation then checks freshness, result order, disclosure,
-and applicability. A malformed immutable record fails `check` at its exact path
-without hiding an otherwise valid skill. Approval binds candidate, provenance,
-distribution, target, exceptions, date, rights, and public irreversibility
-review. Evidence and approval are independent gates. `reviewer` is a recorded
-declaration, not authentication, separation-of-duties proof, or attestation of
-specific receipts. Approval grants no runtime, tool, or script permission; the
-host enforces those separately. Identical recording is a no-op.
+## Distribution and disclosure
 
-Records are at most 64 KiB, 128 per skill, 4 MiB per skill, and 16 MiB per source.
-Raw configurations, reports, transcripts, reasoning, and provider output stay
-outside; receipts retain digests and bounded summaries.
+A distribution has `id`, `audience`, `skills`, `target`, `delivery`,
+`evidencePolicy`, `privateDisclosure`, and `activeReview`. The target binds
+`provider:"github"`, `hostname`, `nameWithOwner`, local `remote`, `branch`, and
+`expectedVisibility`. Public requires `PUBLIC`, eligible exposure and blocked
+private material; private requires `PRIVATE`; `INTERNAL` is unsupported.
+`delivery` is a declaration, not installation or access authorization.
 
-## Toolchain and release manifests
+`evidencePolicy` has sorted `routingProfiles` and `behaviorProfiles`. Each profile
+has `kind`, `name`, `version`, `claim`, `runConfigDigest`, `trialCount`, and
+`minimumPassCount`. Profiles permit 1–10 trials and a threshold from 1 to that
+count. Release rejects `smoke`; manual-host and external profiles require at least
+three trials. Run configuration hashes bind the exact UTF-8 configuration text.
 
-`toolchain-manifest` binds toolchain modes and digests except itself; the
-enclosing tree covers it. Unknown entries, unsafe objects, or drift refuse.
+Disclosure policy has sorted entries `{id,class,match,value}`. Ordinary edits
+replace the active policy; there are no tombstones. A complete semantic policy
+change stales reviews. Credentials cannot be excepted. Review exceptions bind a
+selected skill, entry ID, entry content digest, and nonblank reason.
 
-`release-manifest` binds lineage, distribution, payload, target, prior HEAD,
-remotes, and commit paths while hashing private context. One complete lineage
-allows 256 manifest changes and one source, distribution, audience, target, and
-ancestor; audience or target changes need fresh history. remek manages only
-`skills/` and the manifest, preserves other mirror files, and exports no governance.
-Target lineage is domain-separated and binds provider, canonical hostname and
-repository, expected and observed visibility, and branch. The local remote alias
-is excluded from history but remains approval context and, with canonical
-fetch/push URL digests, per-release `remoteBinding`.
+## Reported evaluation
 
-Owned files equal raw HEAD blobs and modes. Export uses 0644/0755, without empty
-directories or `.gitattributes`. Bounded HEAD integrity must pass; filters,
-hidden index state, submodules, auxiliary indexes, and local Git execution or
-transport overrides refuse. Subprocesses allow 30 seconds and 4 MiB UTF-8 I/O;
-target queries allow 64 KiB. `plan show` allows 768 KiB text or one third of its
-1 MiB JSON bound; `--max-bytes` only lowers limits.
-Managed release requires the governed source and mirror to equal their Git worktree
-roots and checks the full Git object database. Project mode therefore inherits the
-enclosing repository's object-database cost; a monorepo that cannot finish within
-the 30-second bound needs a separate governed source.
-After the trusted interpreter loads the verified bundle, each `git` or `gh`
-launch resolves a canonical absolute single-linked regular executable outside
-every selected root. Empty and relative PATH entries refuse. Symlinked entries
-are canonicalized; directories with nonregular, hardlinked, or canonically
-forbidden `git` or `gh` targets are filtered, and the child receives only
-surviving canonical absolute directories. Resolution is repeated for every
-launch and forbidden-root set.
+An `evaluation` records `skill`, `evidenceKind`, `candidate`, `caseSetDigest`,
+`routingCatalogDigest`, nullable `distribution`, six-field `profile` (without
+`runConfigDigest`), `runConfiguration`, `trials`, and `artifacts`.
+The actual configuration is nonblank, at most 16 KiB UTF-8, and its digest is
+computed internally. A caller-supplied profile digest is refused.
 
-## Stable exits and finding classes
+Every case/trial pair appears once in exact case order and trial order, with
+`{caseId,trial,outcome,observation}`. `outcome` is `pass`, `fail`, or `error`;
+`observation` is 1–500 characters. Unreported templates cannot be recorded. Counts
+and reported passing are derived; every case must reach the threshold. Artifact
+references are optional, at most 32 `{label,digest}` pairs. remek validates their
+shape, not external bytes or authenticity. Full traces can remain external;
+record both actual failures and successes.
 
-- `0`: success or warning-only result
-- `1`: blocking findings
-- `2`: refusal with final governed state unchanged, either before mutation or
-  after complete restoration
-- `3`: mutation completed with residue or ambiguity
-- `70`: unexpected internal failure
-- `130`: interruption
+Behavior evidence forbids a distribution. Named routing evidence binds that
+selected catalog. Whole-source routing evidence cannot qualify a named release.
+Intrinsic validation precedes current candidate/case/catalog/profile matching.
+Stale history remains stored. Identical recording is a no-op; new relevant reports
+atomically append and clear every affected non-null `activeReview` pointer.
 
-Finding prefixes name their owner; credential findings expose only code and path.
+## Complete release review
+
+A `release-review` records `context`, `contextDigest`, `selectedEvidence`,
+`failureAcknowledgements`, `disclosureExceptions`, `reviewer`, valid ISO
+`reviewedOn`, and four booleans: `rightsReviewed`, `evidenceReviewed`,
+`proprietaryContentReviewed`, `publicIrreversibilityAcknowledged`.
+The first three must be true; the last must be true for public release.
+Templates contain false booleans, blank declarations, and deterministic proposals.
+Only actual review and owner authorization justify filling them.
+
+Context contains the full normalized distribution except `activeReview`, sorted
+members `{skill,candidateDigest,skillRecordDigest,routingCaseDigest,
+behaviorCaseDigest,evidenceSetDigest}`, and `disclosurePolicyDigest`.
+Each evidence set binds all intrinsically valid currently applicable reports,
+including failures and non-required profiles. Selected sorted report IDs must
+cover all required member/kind/profile slots with current reported passes.
+Every current required-profile failure needs exactly one acknowledgement
+`{report,reason}`; no acknowledgement waives a required pass. Reasons are nonblank,
+at most 1,000 characters. Non-required failures remain bound and visible without
+becoming new profile requirements. Exceptions are at most 64 per selected skill.
+Even an empty distribution requires review.
+
+`review plan` returns the complete template and compact packet: exact members,
+profile/report identities, failure IDs and private paths, additional-report counts,
+provenance limitations, and disclosure findings. Observations are read from their
+named private records. Oversized complete output refuses instead of truncating a
+review. A selected missing review file is structurally invalid; null and stale
+pointers mean not ready. Old review files are not automatically pruned.
+
+## Identities and plans
+
+SHA-256 digests are identities, not signatures. Candidate tree hashing retains
+`remek.candidate.v1\0` and exact bytes plus Git-representable modes; this name does
+not enable v1 document loading. Skill records and virtual case-set documents hash
+normalized canonical semantics. Report/review IDs hash canonical record bytes.
+Evidence sets hash `remek.evidence-set.v2\0` plus their canonical sorted report-ID
+document. Context hashes `remek.review-context.v2\0` plus canonical context.
+Only active pointers, stored reviews, and Git HEAD are excluded from review
+subject identity; all selection, target, delivery, profile and policy fields bind.
+
+Operation plans bind intent, inputs, source identities, toolchain, target states,
+and a digest without embedding payload or diff. Normal mutation intents are `init`,
+`eval-record`, `review-record`, `release`, `update`. `show` reconstructs a bounded
+diff; `apply` reconstructs again and refuses drift. Reformatting authored JSON may
+preserve review semantics but changes raw plan identity. The source-only converter
+has its own `migrate-v1` reconstruction; normal apply rejects it.
+
+## Release and executable boundary
+
+`release-manifest` binds source/distribution identities, clean source commit and
+branch digest, `reviewDigest`, release and payload IDs, candidate/file/directory
+inventory, target verification digest, pre-release HEAD, remote URL hashes, and
+exact expected commit paths. The review digest participates in release identity.
+Private context stays hashed. A managed mirror owns only `skills/` and the manifest;
+other files remain unchanged. Empty releases omit `skills/` entirely.
+
+Lineage permits 256 manifest changes and binds source, distribution, audience,
+target, and source ancestry. Target lineage binds provider, canonical host/repo,
+expected and observed visibility, and branch. A remote alias is excluded from
+historical target identity but bound by the review and each release. Audience or
+semantic target changes require fresh mirror history. V1 manifests are refused.
+
+Every owned regular file equals its raw HEAD blob and Git-representable mode.
+Export uses 0644/0755 and no empty directories or payload `.gitattributes`.
+Full object database integrity must pass. Active filters, hidden index flags,
+submodules, auxiliary indexes, execution/transport overrides, dirty state, and
+unexpected release commit paths refuse. Source and mirror equal their Git roots;
+project mode inherits full monorepo integrity cost.
+
+After trusted bootstrap, every Git/GitHub executable is resolved canonically,
+absolute, regular, single-linked, and outside all selected roots. Child PATH is
+filtered; empty/relative entries refuse. Resolution repeats for each launch/root
+set. Subprocesses allow 30 seconds and 4 MiB UTF-8 I/O; target queries allow 64 KiB.
+The tool never commits, pushes, installs, signs, tags, or changes visibility.
+
+## Result and exit contract
+
+`--json` emits one `command-result` envelope with `schema`, `kind`, `command`,
+`status`, `changed`, `summary`, `findings`, `changes`, `data`, `nextAction`, and
+`exitCode`. Normal results are complete; output failure uses an independent minimal
+fallback preserving mutation outcome and reporting changed paths and residue, or
+explicitly signaling omitted identifiers. A broken output stream never turns a
+completed or ambiguous mutation into unchanged success.
+
+Credential redaction covers free text and dynamic source-binding keys; trusted
+protocol fields retain their defined values. It changes only displayed output,
+never saved plan bytes or record identities. Key collisions fail output instead of
+merging bindings.
+
+| Operation | Important data |
+| --- | --- |
+| `check` | `structuralValid`, skills and identities/exposure, nullable `distribution`, `releaseReady`, `reviewStatus` |
+| `audit` | `profile:"remek-text"`, `supported` |
+| `eval plan` | template, candidate/case/catalog identities, `execution:"not-performed"` |
+| `eval record` | report ID, derived `reportedPassing`, revoked distributions |
+| `review plan/record` | complete packet/template; review/context IDs, distribution, prior pointer |
+| `release plan` | review/release IDs, `mode`, `targetVerified`, `publicationPerformed:false` |
+| `verify` | `artifactVerified:true`; source readiness and target false; declared review/release IDs |
+| `release verify` | artifact/source/target/commit-lineage verification, exact source/mirror commits |
+| `apply` | `outcome`, `changedPaths`, `residue`, operation-specific IDs |
+| `update` | old/new bundle identities |
+
+Review status is null without selection, otherwise `missing`, `stale`, `current`,
+or `invalid`. Mutation outcomes are `unchanged`, `applied`, `restored`, `residue`, or
+`unknown`. Publication is never claimed. `show` allows 768 KiB text diff; JSON mode
+lowers diff to one third of 1 MiB, and `--max-bytes` can only lower it further.
+
+Exits: 0 success/warnings; 1 blocking findings; 2 refused unchanged or completely
+restored; 3 known mutation with failed reporting/final checks, residue, or ambiguity;
+70 unexpected pre-mutation failure; 130 interruption with unchanged or fully
+restored state. Mutation-aware errors, including saved-plan artifact failures,
+take precedence over interruption/internal error codes.

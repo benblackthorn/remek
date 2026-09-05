@@ -2,53 +2,50 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import time
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
+import remek_core.transaction as transaction_module
 import remek_core.workflows as workflows_module
 from helpers import (
-    PROFILE,
     PROJECT,
-    accepted_distribution,
+    TOOLCHAIN,
     apply,
     authored,
+    authored_distribution,
+    completed_evaluation,
     disclosure_document,
     disclosure_entry,
     distribution_document,
     git_commit,
     initialized,
     mirror,
-    promote_skill,
     ready_source,
-    record_approval,
     record_evidence,
+    record_review,
+    set_exposure,
     write_input,
 )
 from remek_core.contract import load_document
-from remek_core.frontmatter import render_skill
 from remek_core.model import Error
 from remek_core.repository import (
     evaluation_plan,
     inspect_repository,
-    release_findings,
     repository_findings,
 )
+from remek_core.review import release_findings
 from remek_core.workflows import (
     _git_state,
     _run,
     _skills_payload,
-    accept_plan,
-    disclosure_accept_plan,
-    distribution_accept_plan,
     eval_record_plan,
     release_plan,
     release_verify,
-    remove_plan,
-    repair_plan,
-    retire_plan,
-    scaffold_workspace,
     update_plan,
     verify_github_target,
     verify_materialized_release,
@@ -78,6 +75,29 @@ def release_roots(tmp_path, monkeypatch):
 
 def release(root, target, **options):
     return release_plan(root, "org-private", mirror=target, **options)
+
+
+def reported_evaluation(root, kind, distribution=None):
+    return completed_evaluation(
+        evaluation_plan(inspect_repository(root), "deploy-safely", kind, distribution).template()
+    )
+
+
+def reviewed_distributions(tmp_path):
+    root = ready_source(tmp_path)
+    write_input(
+        root / ".remek/distributions/other-private.json", distribution_document("other-private")
+    )
+    artifact = write_input(
+        tmp_path / "other-routing.json", reported_evaluation(root, "routing", "other-private")
+    )
+    apply(eval_record_plan(root, "deploy-safely", artifact))
+    record_review(tmp_path, root, distribution="other-private")
+    unrelated = distribution_document("unrelated")
+    unrelated["skills"] = []
+    write_input(root / ".remek/distributions/unrelated.json", unrelated)
+    record_review(tmp_path, root, distribution="unrelated")
+    return root
 
 
 def materialized_release(tmp_path, monkeypatch):
@@ -110,13 +130,97 @@ def git(root, *arguments, **options):
     )
 
 
-def test_subprocess_output_is_bounded(tmp_path):
+def test_subprocess_output_is_bounded(tmp_path, monkeypatch):
     with pytest.raises(Error, match="output exceeds"):
         _run(
             [sys.executable, "-c", "import os; os.write(1, b'x' * 2048)"],
             cwd=tmp_path,
             output_limit=1024,
         )
+    child = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    def fail_registration(*_args):
+        raise OSError("selector registration failed")
+
+    monkeypatch.setattr(workflows_module.selectors.DefaultSelector, "register", fail_registration)
+    with pytest.raises(Error, match="query failed"):
+        workflows_module._capture_process(child, ["synthetic child"], 1024)
+    assert child.returncode is not None
+
+
+def test_parent_cancellation_reaps_target_query(tmp_path):
+    root = ready_source(tmp_path)
+    git_commit(root)
+    target = mirror(tmp_path)
+    started, finished = tmp_path / "child.pid", tmp_path / "child-finished"
+    trusted = tmp_path / "bin"
+    fake_tool(
+        trusted,
+        "gh",
+        "import os,time\nfrom pathlib import Path\n"
+        f"Path({str(started)!r}).write_text(str(os.getpid()))\n"
+        f"time.sleep(10)\nPath({str(finished)!r}).touch()",
+    )
+    before = workflows_module.snapshot(root / ".remek").digest
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            "-B",
+            str(TOOLCHAIN.parent / "scripts/cli.py"),
+            "--root",
+            str(root),
+            "--json",
+            "release",
+            "plan",
+            "org-private",
+            "--mirror",
+            str(target),
+        ],
+        env={**os.environ, "PATH": str(trusted) + os.pathsep + os.environ["PATH"]},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not started.exists() and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert started.exists()
+        child = int(started.read_text())
+        process.send_signal(signal.SIGINT)
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode == 130, stderr
+        assert json.loads(stdout)["changed"] is False
+        with pytest.raises(ProcessLookupError):
+            os.kill(child, 0)
+        assert not finished.exists() and not (target / "release-manifest.json").exists()
+        assert workflows_module.snapshot(root / ".remek").digest == before
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        if started.exists():
+            with suppress(ProcessLookupError):
+                os.kill(int(started.read_text()), signal.SIGKILL)
+
+
+def test_deleted_credential_path_cannot_enter_release_manifest(tmp_path, monkeypatch):
+    _root, target = materialized_release(tmp_path, monkeypatch)
+    manifest = json.loads((target / "release-manifest.json").read_text())
+    secret = "gh" + "p_" + "x" * 24
+    manifest["expectedCommitPaths"] = [
+        f"skills/deploy-safely/{secret}.txt",
+        "release-manifest.json",
+    ]
+    with pytest.raises(Error) as captured:
+        workflows_module._manifest(manifest, "release.manifest")
+    assert secret not in str(captured.value)
 
 
 def test_external_tool_uses_canonical_executable_and_filtered_path(tmp_path):
@@ -299,18 +403,6 @@ def test_checkout_and_github_queries_refuse_selected_root_tools(tmp_path, monkey
         verify_github_target(distribution_document()["target"], (selected,))
     assert not marker.exists()
 
-    monkeypatch.setenv("HOME", str(tmp_path))
-    root = initialized(tmp_path)
-    with pytest.raises(Error, match="Git is required"):
-        scaffold_workspace(
-            root,
-            tmp_path / "scaffolded",
-            name="new-skill",
-            origin="imported",
-            source=Path("~/selected"),
-        )
-    assert not marker.exists()
-
     trusted = tmp_path / "trusted"
     observation = json.dumps(
         {"nameWithOwner": "business-a/private-skills", "visibility": "PRIVATE"}
@@ -351,13 +443,13 @@ def test_external_tool_resolution_is_rechecked_for_each_root_set(tmp_path):
     assert rechecked.stdout == f"second|{second}\n"
 
 
-def test_repair_changes_only_managed_files_and_preserves_foreign_data(tmp_path):
+def test_update_changes_only_managed_files_and_preserves_foreign_data(tmp_path):
     root = initialized(tmp_path, project=True)
     foreign = root / "owner-notes.txt"
     foreign.write_bytes(b"unrelated owner data\n")
     (root / "remek").write_text("damaged\n")
 
-    plan = repair_plan(root)
+    plan = update_plan(root, TOOLCHAIN)
     assert {change.path for change in plan.changes} == {root / "remek"}
     apply(plan)
 
@@ -425,13 +517,9 @@ def test_release_requires_owned_files_in_raw_source_head(tmp_path, monkeypatch):
         unsupported.unlink()
     ignored = "skills/deploy-safely/ignored.txt"
     (root / ".gitignore").write_text(f"/{ignored}\n")
-    workspace = tmp_path / "ignored-revision"
-    scaffold_workspace(root, workspace, skill_name="deploy-safely")
-    (workspace / "candidate/ignored.txt").write_text("release payload\n")
-    apply(accept_plan(root, workspace))
-    promote_skill(tmp_path, root, workspace_name="ignored-promotion")
+    (root / ignored).write_text("release payload\n")
     record_evidence(tmp_path, root)
-    record_approval(tmp_path, root)
+    record_review(tmp_path, root)
     git_commit(root)
     assert (
         subprocess.run(
@@ -448,317 +536,38 @@ def test_release_requires_owned_files_in_raw_source_head(tmp_path, monkeypatch):
         release(root, target)
 
 
-def test_scaffold_is_absent_private_and_outside_source(tmp_path, monkeypatch):  # noqa: PLR0915
-    root = initialized(tmp_path)
-    source = tmp_path / "work.md"
-    source.write_text("completed work")
-    workspace = tmp_path / "workspace"
-    result = scaffold_workspace(root, workspace, name="new-skill", origin="captured", source=source)
-    assert result["mode"] == "new"
-    assert os.stat(workspace).st_mode & 0o777 == 0o700
-    with pytest.raises(Error, match="absent"):
-        scaffold_workspace(root, workspace, name="new-skill", origin="captured", source=source)
-    with pytest.raises(Error, match="outside"):
-        scaffold_workspace(
-            root,
-            root / "workspace",
-            name="new-skill",
-            origin="captured",
-            source=source,
-        )
-    with pytest.raises(Error, match="requires --source"):
-        scaffold_workspace(
-            root,
-            tmp_path / "missing-source",
-            name="new-skill",
-            origin="captured",
-        )
-    invalid = tmp_path / "invalid-name"
-    with pytest.raises(Error, match="skill name"):
-        scaffold_workspace(root, invalid, name="Invalid", origin="captured", source=source)
-    assert not invalid.exists()
-    actual_parent = tmp_path / "actual-parent"
-    actual_parent.mkdir()
-    alias = tmp_path / "alias-parent"
-    alias.symlink_to(actual_parent, target_is_directory=True)
-    with pytest.raises(Error, match=r"actual workspace path resolves to .*repair: rerun"):
-        scaffold_workspace(
-            root,
-            alias / "aliased-workspace",
-            name="new-skill",
-            origin="captured",
-            source=source,
-        )
-    bare = tmp_path / "bare"
-    bare.mkdir()
-    with pytest.raises(Error, match="usable toolchain"):
-        scaffold_workspace(
-            bare,
-            tmp_path / "bare-workspace",
-            name="new-skill",
-            origin="captured",
-            source=source,
-        )
-    workspace.chmod(0o755)
-    with pytest.raises(Error, match="workspace mode"):
-        accept_plan(root, workspace)
-    workspace.chmod(0o700)
-    (workspace / "extra").write_text("foreign")
-    with pytest.raises(Error, match="top-level layout"):
-        accept_plan(root, workspace)
-    (workspace / "extra").unlink()
-    manifest_path = workspace / "workspace.json"
-    manifest = load_document(manifest_path, kind="workspace")
-    manifest["mode"] = []
-    write_input(manifest_path, manifest)
-    with pytest.raises(Error, match="invalid workspace"):
-        accept_plan(root, workspace)
-    manifest["mode"] = "new"
-    manifest["base"]["candidate"] = "0" * 64
-    write_input(manifest_path, manifest)
-    with pytest.raises(Error, match="invalid workspace"):
-        accept_plan(root, workspace)
-    manifest["base"]["candidate"] = None
-    write_input(manifest_path, manifest)
-    provenance_path = workspace / "provenance.json"
-    provenance = load_document(provenance_path, kind="provenance")
-    provenance["sourceLabel"] = "bad\0label"
-    write_input(provenance_path, provenance)
-    with pytest.raises(Error, match="source label must be portable"):
-        accept_plan(root, workspace)
-    provenance["sourceLabel"] = manifest["sourcePath"].split("/", 1)[1]
-    write_input(provenance_path, provenance)
-    policy_path = workspace / "policy.json"
-    policy = load_document(policy_path, kind="skill-policy")
-    policy.update({"lifecycle": "ready", "exposure": "private-only"})
-    write_input(policy_path, policy)
-    with pytest.raises(
-        Error,
-        match=r"actual lifecycle/exposure is ready/private-only; expected draft/source-only",
-    ):
-        accept_plan(root, workspace)
-    policy.update({"lifecycle": "draft", "exposure": "source-only"})
-    write_input(policy_path, policy)
-    release_parent = tmp_path / "release/subdirectory"
-    release_parent.mkdir(parents=True)
-    (release_parent.parent / "release-manifest.json").write_text("{}")
-    with pytest.raises(Error, match="release tree"):
-        scaffold_workspace(
-            root,
-            release_parent / "workspace",
-            name="new-skill",
-            origin="captured",
-            source=source,
-        )
-    with pytest.raises(Error, match="placeholder"):
-        accept_plan(root, workspace)
-    hidden = root / "hidden-workspace"
-    workspace.rename(hidden)
-    workspace.symlink_to(hidden, target_is_directory=True)
-    with pytest.raises(Error, match="outside"):
-        accept_plan(root, workspace)
-
-    def missing_git(*_arguments, **_options):
-        raise Error("external.unavailable", "cannot run git: unavailable")
-
-    monkeypatch.setattr(workflows_module, "_run", missing_git)
-    with pytest.raises(Error, match="Git is required"):
-        scaffold_workspace(
-            root,
-            tmp_path / "missing-git",
-            name="new-skill",
-            origin="captured",
-            source=source,
-        )
-
-
-def test_import_accept_retains_reviewed_upstream_manifest(tmp_path):
-    root = initialized(tmp_path)
-    source = tmp_path / "upstream-skill"
-    source.mkdir()
-    (source / "SKILL.md").write_text(
-        "---\n"
-        "description: Use for one reviewed imported workflow.\n"
-        "metadata:\n"
-        "    local-path: /Users/owner/private-skills/imported-skill\n"
-        "    owner: reviewed-team\n"
-        "name: imported-skill\n"
-        "---\n"
-        "# Imported workflow\n\nFollow the reviewed upstream procedure.\n"
-    )
-    with pytest.raises(Error, match="directory basename"):
-        scaffold_workspace(
-            root,
-            tmp_path / "wrong-import-workspace",
-            name="imported-skill",
-            origin="imported",
-            source=source,
-        )
-    source = source.rename(tmp_path / "imported-skill")
-    reviewed = (source / "SKILL.md").read_bytes()
-    (source / "SKILL.md").write_text(
-        "---\nname: imported-skill\ndescription: [one]\n---\n# Imported workflow\n"
-    )
-    with pytest.raises(Error, match="outside remek's supported profile"):
-        scaffold_workspace(
-            root,
-            tmp_path / "unsupported-import-workspace",
-            name="imported-skill",
-            origin="imported",
-            source=source,
-        )
-    (source / "SKILL.md").write_bytes(reviewed)
-    workspace = tmp_path / "import-workspace"
-    scaffold_workspace(
-        root,
-        workspace,
-        name="imported-skill",
-        origin="imported",
-        source=source,
-    )
-    provenance = load_document(workspace / "provenance.json", kind="provenance")
-    provenance.update(
-        {
-            "upstreamRepository": "owner/source",
-            "upstreamRef": "reviewed-ref",
-            "rights": "licensed",
-            "rightsBasis": "Reviewed upstream license.",
-            "license": "MIT",
-        }
-    )
-    write_input(workspace / "provenance.json", provenance)
-    apply(accept_plan(root, workspace))
-    skill = inspect_repository(root).skill("imported-skill")
-    retained = load_document(
-        root / ".remek/skills/imported-skill/sources/import-manifest.json",
-        kind="import-source",
-    )
-    assert retained["upstreamRepository"] == "owner/source"
-    assert retained["upstreamRef"] == "reviewed-ref"
-    assert retained["candidate"] == skill.provenance.upstream_candidate
-    assert skill.fields["metadata"] == {"owner": "reviewed-team"}
-
-
-def test_revision_drift_requires_rescaffold(tmp_path):
+def test_authored_distribution_and_disclosure_are_checked_without_rewriting(tmp_path):
     root = initialized(tmp_path)
     authored(tmp_path, root)
-    workspace = tmp_path / "revision"
-    scaffold_workspace(root, workspace, skill_name="deploy-safely")
-    policy_path = root / ".remek" / "skills" / "deploy-safely" / "policy.json"
-    policy = load_document(policy_path, kind="skill-policy")
-    policy["stateReason"] = "concurrent owner edit"
-    write_input(policy_path, policy)
-    with pytest.raises(Error, match="scaffold the skill again"):
-        accept_plan(root, workspace)
-
-
-def test_accept_retains_source_and_revision_invalidates_records(tmp_path, monkeypatch):
-    root = ready_source(tmp_path)
-    skill = inspect_repository(root).skill("deploy-safely")
-    retained = root / ".remek/skills/deploy-safely/sources" / skill.provenance.source_label
-    assert retained.is_file()
-    workspace = tmp_path / "revision"
-    scaffold_workspace(root, workspace, skill_name="deploy-safely")
-    with monkeypatch.context() as bounded:
-        bounded.setattr("remek_core.workflows.MAX_SKILL_GOV", 1)
-        with pytest.raises(Error, match="governance"):
-            accept_plan(root, workspace)
-    (workspace / "candidate" / "SKILL.md").write_bytes(
-        render_skill(
-            {
-                "name": "deploy-safely",
-                "description": "Use for the revised safe deployment workflow.",
-                "license": "MIT",
-            },
-            "# Revised deployment\n\nUse the newly reviewed steps.\n",
-        )
-    )
-    apply(accept_plan(root, workspace))
-    skill = inspect_repository(root).skill("deploy-safely")
-    assert skill.policy.lifecycle == "draft"
-    assert skill.evidence == () and skill.approvals == ()
-
-
-@pytest.mark.parametrize("retired", [False, True])
-def test_policy_promotion_requires_new_reason(retired, tmp_path):
-    root = initialized(tmp_path)
-    authored(tmp_path, root)
-    if retired:
-        apply(retire_plan(root, "deploy-safely", "Superseded after owner review."))
-    workspace = tmp_path / "revision"
-    scaffold_workspace(root, workspace, skill_name="deploy-safely")
-    policy = load_document(workspace / "policy.json", kind="skill-policy")
-    policy["lifecycle" if retired else "exposure"] = "ready" if retired else "public-eligible"
-    write_input(workspace / "policy.json", policy)
-    with pytest.raises(Error, match="stateReason"):
-        accept_plan(root, workspace)
-
-
-def test_distribution_and_disclosure_accept_are_idempotent(tmp_path):
-    root = initialized(tmp_path)
-    authored(tmp_path, root)
-    distribution = write_input(tmp_path / "distribution.json", distribution_document())
-    first = distribution_accept_plan(root, distribution)
-    apply(first)
-    assert distribution_accept_plan(root, distribution).changes == ()
-    document = distribution_document("secret")
-    profile = document["evidencePolicy"]["routingProfiles"][0]
-    document["evidencePolicy"]["routingProfiles"] = [{**profile, "name": "github_pat_" + "a" * 20}]
-    secret = write_input(tmp_path / "secret.json", document)
-    with pytest.raises(Error, match=r"credential\.github-token"):
-        distribution_accept_plan(root, secret)
+    path = root / ".remek/distributions/org-private.json"
+    document = distribution_document()
+    path.write_text(json.dumps(document))
+    raw = path.read_bytes()
+    assert inspect_repository(root).distribution("org-private").skills == ("deploy-safely",)
+    assert path.read_bytes() == raw
+    secret = distribution_document("secret")
+    secret["evidencePolicy"]["routingProfiles"][0]["name"] = "github_pat_" + "a" * 20
     persisted = root / ".remek/distributions/secret.json"
-    write_input(persisted, document)
+    write_input(persisted, secret)
     assert any(item.code == "credential.github-token" for item in inspect_repository(root).issues)
     persisted.unlink()
-    disclosure = write_input(
-        tmp_path / "disclosure.json",
-        disclosure_document(disclosure_entry("client-name", "Acme Internal")),
-    )
-    apply(disclosure_accept_plan(root, disclosure))
-    assert disclosure_accept_plan(root, disclosure).changes == ()
-    credential = write_input(
-        tmp_path / "credential-disclosure.json",
+    write_input(
+        root / ".remek/disclosure-policy.json",
         disclosure_document(disclosure_entry("private-profile", "secret-host", "credential")),
     )
-    apply(disclosure_accept_plan(root, credential))
     custom = distribution_document("custom")
     custom["evidencePolicy"]["routingProfiles"][0]["name"] = "secret-host"
-    custom_path = write_input(tmp_path / "custom.json", custom)
-    with pytest.raises(Error, match=r"disclosure\.credential"):
-        distribution_accept_plan(root, custom_path)
-    persisted = root / ".remek/distributions/custom.json"
-    write_input(persisted, custom)
+    write_input(root / ".remek/distributions/custom.json", custom)
     assert any(item.code == "disclosure.credential" for item in inspect_repository(root).issues)
-    persisted.unlink()
-
-
-def test_retire_preserves_record_and_remove_refuses_distribution(tmp_path):
-    root = ready_source(tmp_path)
-    for reason in ("", "x" * 501):
-        with pytest.raises(Error, match="1 to 500") as caught:
-            retire_plan(root, "deploy-safely", reason)
-        assert caught.value.code == "retire.reason"
-    apply(retire_plan(root, "deploy-safely", "Superseded after owner review."))
-    assert inspect_repository(root).skill("deploy-safely").policy.lifecycle == "retired"
-    assert any(
-        item.code == "release.lifecycle"
-        for item in release_findings(inspect_repository(root), "org-private")
-    )
-    with pytest.raises(Error, match="remains in distribution"):
-        remove_plan(root, "deploy-safely")
 
 
 def test_empty_distribution_releases_and_verifies_without_skills(tmp_path, monkeypatch):
     root = initialized(tmp_path)
-    authored(tmp_path, root)
-    accepted_distribution(tmp_path, root)
     document = distribution_document()
     document["skills"] = []
-    artifact = write_input(tmp_path / "empty-distribution.json", document)
-    apply(distribution_accept_plan(root, artifact))
+    write_input(root / ".remek/distributions/org-private.json", document)
+    record_review(tmp_path, root)
     assert release_findings(inspect_repository(root), "org-private") == ()
-    apply(remove_plan(root, "deploy-safely"))
     assert inspect_repository(root).skills == ()
     git_commit(root)
     target = mirror(tmp_path)
@@ -768,7 +577,7 @@ def test_empty_distribution_releases_and_verifies_without_skills(tmp_path, monke
     verifier = [sys.executable, str(VERIFY_SCRIPT), str(target)]
     assert subprocess.run(verifier, check=False).returncode == 0
     git_commit(target, "empty release")
-    assert release_verify(root, "org-private", target)["verified"] is True
+    assert release_verify(root, "org-private", target)["artifactVerified"] is True
     clone = tmp_path / "clone"
     subprocess.run(["git", "clone", "-q", str(target), str(clone)], check=True)
     verifier[-1] = str(clone)
@@ -778,39 +587,113 @@ def test_empty_distribution_releases_and_verifies_without_skills(tmp_path, monke
 def test_failed_evidence_persists_content_addressed(tmp_path, monkeypatch):
     root = initialized(tmp_path)
     authored(tmp_path, root)
-    accepted_distribution(tmp_path, root)
-    plan = evaluation_plan(inspect_repository(root), "deploy-safely", "routing", "org-private")
-    document = plan.template()
-    document["profile"] = PROFILE
-    for result in document["results"]:
-        result["passCount"] = 0
+    authored_distribution(tmp_path, root)
+    document = reported_evaluation(root, "routing", "org-private")
+    for result in document["trials"]:
+        result.update(
+            outcome="fail", observation="Synthetic observed failure: expected route missing."
+        )
     document["artifacts"] = [{"label": "evaluation-report", "digest": "d" * 64}]
-    artifact = tmp_path / "failed.json"
-    artifact.write_text(json.dumps(document))
+    artifact = write_input(tmp_path / "failed.json", document)
     with monkeypatch.context() as bounded:
-        bounded.setattr("remek_core.workflows.MAX_RECORD_BYTES", 1)
+        bounded.setattr(workflows_module, "document_limit", lambda _kind: 1)
         with pytest.raises(Error, match="governance"):
             eval_record_plan(root, "deploy-safely", artifact)
     secret = "gh" + "p_abcdefghijklmnopqrstuvwxyz"
     document["artifacts"][0]["label"] = secret
-    artifact.write_text(json.dumps(document))
+    write_input(artifact, document)
     with pytest.raises(Error) as caught:
         eval_record_plan(root, "deploy-safely", artifact)
     assert secret not in str(caught.value)
     document["artifacts"][0]["label"] = "evaluation-report"
-    artifact.write_text(json.dumps(document))
+    write_input(artifact, document)
     first = eval_record_plan(root, "deploy-safely", artifact)
+    assert first.data["reportedPassing"] is False
     apply(first)
     assert eval_record_plan(root, "deploy-safely", artifact).changes == ()
-    evidence = root / ".remek" / "skills" / "deploy-safely" / "evidence"
-    [receipt] = evidence.glob("*.json")
-    assert receipt.name == f"{hashlib.sha256(receipt.read_bytes()).hexdigest()}.json"
-    malformed = receipt.with_name("0" * 64 + ".json")
-    receipt.rename(malformed)
+    evidence = root / ".remek/skills/deploy-safely/evidence"
+    [report] = evidence.glob("*.json")
+    assert report.name == f"{hashlib.sha256(report.read_bytes()).hexdigest()}.json"
+    malformed = report.with_name("0" * 64 + ".json")
+    report.rename(malformed)
     inspection = inspect_repository(root)
     assert inspection.skill("deploy-safely")
     finding = next(item for item in inspection.issues if item.code == "evidence.malformed")
     assert finding.path == str(malformed.relative_to(root))
+
+
+def test_new_routing_report_revokes_only_its_distribution_and_duplicate_is_noop(tmp_path):
+    root = reviewed_distributions(tmp_path)
+    before = {
+        dist.distribution_id: dist.active_review for dist in inspect_repository(root).distributions
+    }
+    duplicate = eval_record_plan(root, "deploy-safely", tmp_path / "routing-evidence.json")
+    assert duplicate.changes == ()
+    assert duplicate.data["revokedDistributions"] == []
+    document = reported_evaluation(root, "routing", "org-private")
+    document["trials"][0]["observation"] = "Synthetic rerun confirmed the same routing behavior."
+    artifact = write_input(tmp_path / "rerun.json", document)
+    planned = eval_record_plan(root, "deploy-safely", artifact)
+    assert planned.data["revokedDistributions"] == ["org-private"]
+    apply(planned)
+    inspection = inspect_repository(root)
+    assert inspection.distribution("org-private").active_review is None
+    assert inspection.distribution("other-private").active_review == before["other-private"]
+    assert inspection.distribution("unrelated").active_review == before["unrelated"]
+    report = root / ".remek/skills/deploy-safely/evidence" / f"{planned.data['reportId']}.json"
+    report.unlink()
+    assert inspect_repository(root).distribution("org-private").active_review is None
+    assert all((root / ".remek/reviews" / f"{review}.json").is_file() for review in before.values())
+
+
+def test_behavior_revocation_is_atomic_and_preserves_historical_bytes(tmp_path, monkeypatch):
+    root = reviewed_distributions(tmp_path)
+    unrelated_review = inspect_repository(root).distribution("unrelated").active_review
+    directories = [root / ".remek" / name for name in ("distributions", "reviews", "skills")]
+
+    def records():
+        return {
+            str(path): path.read_bytes()
+            for directory in directories
+            for path in directory.rglob("*.json")
+        }
+
+    before = records()
+    document = reported_evaluation(root, "behavior")
+    document["trials"][0].update(
+        outcome="fail", observation="Synthetic rerun failed to stop on drift."
+    )
+    artifact = write_input(tmp_path / "failed-behavior.json", document)
+    planned = eval_record_plan(root, "deploy-safely", artifact)
+    assert planned.data["reportedPassing"] is False
+    assert planned.data["revokedDistributions"] == ["org-private", "other-private"]
+    original = transaction_module._replace
+
+    def fail_second_pointer(state, source, destination):
+        if "remek-stage" in source and destination == "other-private.json":
+            raise OSError("synthetic second pointer failure")
+        original(state, source, destination)
+
+    with monkeypatch.context() as fault:
+        fault.setattr(transaction_module, "_replace", fail_second_pointer)
+        with pytest.raises(Error, match="prior state was restored") as captured:
+            apply(planned)
+    assert captured.value.outcome == "restored"
+    assert captured.value.changed is False
+    assert records() == before
+    assert not list(root.rglob(".remek-stage-*"))
+    assert not list(root.rglob(".remek-backup-*"))
+    apply(planned)
+    assert all(
+        dist.active_review is None
+        for dist in inspect_repository(root).distributions
+        if dist.distribution_id != "unrelated"
+    )
+    assert inspect_repository(root).distribution("unrelated").active_review == unrelated_review
+    for path, data in before.items():
+        if "/distributions/" not in path:
+            assert Path(path).read_bytes() == data
+    assert eval_record_plan(root, "deploy-safely", artifact).changes == ()
 
 
 def test_staging_release_is_unverified_and_verify_refuses(tmp_path, monkeypatch):
@@ -847,7 +730,19 @@ def test_release_apply_commit_verify_sequence(tmp_path, monkeypatch):
     assert "sourceRepositoryIdentity" in manifest_text
     git_commit(target, "exact release")
     result = release_verify(root, "org-private", target)
-    assert result["verified"] is True
+    assert all(
+        result[key] is True
+        for key in (
+            "artifactVerified",
+            "sourceReadinessVerified",
+            "targetVerified",
+            "commitLineageVerified",
+        )
+    )
+    assert result["publicationPerformed"] is False
+    assert (
+        result["reviewDigest"] == inspect_repository(root).distribution("org-private").active_review
+    )
     git(root, "branch", "-m", "review")
     with pytest.raises(Error, match=r"actual source branch digest.*switch to the bound"):
         release_verify(root, "org-private", target)
@@ -908,21 +803,17 @@ def test_release_verify_requires_current_readiness(tmp_path, monkeypatch):
     root, target = materialized_release(tmp_path, monkeypatch)
     git_commit(target, "release")
     mirror_head = git(target, "rev-parse", "HEAD", capture_output=True, text=True).stdout.strip()
-    for kind in ("evidence", "approvals"):
-        for path in (root / ".remek/skills/deploy-safely" / kind).glob("*.json"):
-            path.unlink()
-    with pytest.raises(
-        Error,
-        match=r"release\.(approval|evidence) \.remek/skills/deploy-safely/"
-        r"(approvals|evidence).*source and mirror unchanged",
+    for path in (root / ".remek/skills/deploy-safely/evidence").glob("*.json"):
+        path.unlink()
+    for operation in (
+        release,
+        lambda source, mirror: release_verify(source, "org-private", mirror),
     ):
-        release(root, target)
-    with pytest.raises(
-        Error,
-        match=r"release\.(approval|evidence) \.remek/skills/deploy-safely/"
-        r"(approvals|evidence).*source and mirror unchanged",
-    ):
-        release_verify(root, "org-private", target)
+        with pytest.raises(
+            Error,
+            match=r"release\.(review|evidence\.\w+) \.remek/.*source and mirror unchanged",
+        ):
+            operation(root, target)
     assert git(target, "status", "--porcelain=v1", capture_output=True, text=True).stdout == ""
     assert (
         git(target, "rev-parse", "HEAD", capture_output=True, text=True).stdout.strip()
@@ -938,90 +829,62 @@ def test_release_verify_rejects_payload_tamper(tmp_path, monkeypatch):
         release_verify(root, "org-private", target)
 
 
-def test_producer_mirror_verifier_checks_complete_inventory(tmp_path, monkeypatch):
+def test_offline_verifier_checks_complete_inventory_and_hostile_json(tmp_path, monkeypatch):
     _, target = materialized_release(tmp_path, monkeypatch)
-    script = VERIFY_SCRIPT
+    manifest = target / "release-manifest.json"
+    canonical = manifest.read_bytes()
 
     def run(argument=target):
-        return subprocess.run([sys.executable, str(script), str(argument)], check=False).returncode
-
-    assert run() == 0
-    assert run("--self-test") == 0
-    manifest = target / "release-manifest.json"
-    canonical = manifest.read_bytes()
-    manifest.write_bytes(canonical + b" ")
-    assert run() == 2
-    manifest.write_bytes(canonical)
-    manifest.chmod(0o600)
-    assert run() == 0
-    verify_materialized_release(target)
-    manifest.chmod(0o700)
-    assert run() == 2
-    with pytest.raises(Error, match="mode"):
-        verify_materialized_release(target)
-    manifest.chmod(0o644)
-    document = load_document(manifest, kind="release-manifest")
-    document["releaseId"] = 0
-    write_input(manifest, document)
-    with pytest.raises(Error, match="shape"):
-        verify_materialized_release(target)
-    assert run() == 2
-    manifest.write_bytes(canonical)
-    document = load_document(manifest, kind="release-manifest")
-    document["candidates"][0]["candidate"] = "0" * 64
-    write_input(manifest, document)
-    with pytest.raises(Error, match="shape"):
-        verify_materialized_release(target)
-    assert run() == 2
-    manifest.write_bytes(canonical)
-    skill = target / "skills/deploy-safely/SKILL.md"
-    skill.chmod(0o600)
-    assert run() == 0
-    skill.chmod(0o700)
-    assert run() == 2
-    skill.chmod(0o644)
-    extra = target / "skills" / "extra.txt"
-    extra.symlink_to(manifest)
-    assert run() == 2
-    extra.unlink()
-    extra.write_text("unmanifested\n")
-    assert run() == 2
-
-
-def test_verifier_rejects_hostile_json_without_traceback(tmp_path, monkeypatch):
-    _, target = materialized_release(tmp_path, monkeypatch)
-    manifest = target / "release-manifest.json"
-    canonical = manifest.read_bytes()
-    script = VERIFY_SCRIPT
-
-    def assert_refused():
-        with pytest.raises(Error):
-            verify_materialized_release(target)
-        completed = subprocess.run(
-            [sys.executable, str(script), str(target)],
+        return subprocess.run(
+            [sys.executable, str(VERIFY_SCRIPT), str(argument)],
             check=False,
             capture_output=True,
             text=True,
         )
+
+    def refused(message=None):
+        with pytest.raises(Error, match=message):
+            verify_materialized_release(target)
+        completed = run()
         assert completed.returncode == 2 and completed.stderr == "invalid release mirror\n"
 
-    for malformed in ("audience", "mode"):
-        document = load_document(manifest, kind="release-manifest")
-        if malformed == "audience":
-            document["audience"] = []
-        else:
-            document["files"][0]["mode"] = {}
-        write_input(manifest, document)
-        assert_refused()
-        manifest.write_bytes(canonical)
-    manifest.write_bytes(
-        b'{"schema":"remek.1","kind":"release-manifest","value":'
+    assert run().returncode == 0 and run("--self-test").returncode == 0
+    for raw in (
+        canonical + b" ",
+        b'{"schema":"remek.2","kind":"release-manifest","value":'
         + b"[" * 2000
         + b"0"
         + b"]" * 2000
-        + b"}"
-    )
-    assert_refused()
+        + b"}",
+    ):
+        manifest.write_bytes(raw)
+        refused()
+    manifest.write_bytes(canonical)
+    skill = target / "skills/deploy-safely/SKILL.md"
+    for path in (manifest, skill):
+        path.chmod(0o600)
+        assert run().returncode == 0
+        verify_materialized_release(target)
+        path.chmod(0o700)
+        refused("mode" if path == manifest else None)
+        path.chmod(0o644)
+    for field in ("releaseId", "candidate", "audience", "mode"):
+        document = json.loads(canonical)
+        if field == "candidate":
+            document["candidates"][0][field] = "0" * 64
+        elif field == "mode":
+            document["files"][0][field] = {}
+        else:
+            document[field] = 0 if field == "releaseId" else []
+        write_input(manifest, document)
+        refused("shape" if field in {"releaseId", "candidate"} else None)
+    manifest.write_bytes(canonical)
+    extra = target / "skills/extra.txt"
+    extra.symlink_to(manifest)
+    refused()
+    extra.unlink()
+    extra.write_text("unmanifested\n")
+    refused()
 
 
 def test_first_release_requires_adoption_for_existing_skills(tmp_path, monkeypatch):
@@ -1049,17 +912,17 @@ def test_managed_mirror_cannot_change_audience(tmp_path, monkeypatch):
     root, target = materialized_release(tmp_path, monkeypatch)
     git_commit(target, "private release")
 
-    promote_skill(tmp_path, root, exposure="public-eligible", workspace_name="public-promotion")
+    set_exposure(root, "public-eligible")
 
     public_distribution = distribution_document()
     public_distribution["audience"] = "public"
     target_definition = public_distribution["target"]
     assert isinstance(target_definition, dict)
     target_definition["expectedVisibility"] = "PUBLIC"
-    artifact = write_input(tmp_path / "public-distribution.json", public_distribution)
-    apply(distribution_accept_plan(root, artifact))
+    write_input(root / ".remek/distributions/org-private.json", public_distribution)
+    record_evidence(tmp_path, root)
 
-    record_approval(tmp_path, root, public=True)
+    record_review(tmp_path, root, public=True)
     git_commit(root, "public audience")
 
     manifest_path = target / "release-manifest.json"
@@ -1104,8 +967,9 @@ def test_release_history_binds_complete_target_lineage(field, tmp_path, monkeypa
         "hostname": "github.example.com",
     }
     target_definition[field] = replacements[field]
-    apply(distribution_accept_plan(root, write_input(tmp_path / "moved.json", document)))
-    record_approval(tmp_path, root)
+    write_input(root / ".remek/distributions/org-private.json", document)
+    record_evidence(tmp_path, root)
+    record_review(tmp_path, root)
     git_commit(root, "changed target")
     if field == "branch":
         git(target, "branch", "-m", "review")
@@ -1126,8 +990,9 @@ def test_target_lineage_excludes_remote_alias_and_transport(tmp_path, monkeypatc
     target_definition = document["target"]
     assert isinstance(target_definition, dict)
     target_definition["remote"] = "upstream"
-    apply(distribution_accept_plan(root, write_input(tmp_path / "alias.json", document)))
-    record_approval(tmp_path, root)
+    write_input(root / ".remek/distributions/org-private.json", document)
+    record_evidence(tmp_path, root)
+    record_review(tmp_path, root)
     git_commit(root, "renamed remote alias")
     git(target, "remote", "rename", "origin", "upstream")
     apply(release(root, target))

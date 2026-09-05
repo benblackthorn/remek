@@ -1,52 +1,59 @@
 ---
 name: "remek"
-description: "Use when a request names remek or asks to initialize a governed Agent Skills source; capture, import, or revise governed skills; record reviewed external evidence or distribution approval; audit an untrusted skill; or prepare and verify a release mirror you own. remek governs completed skill bytes and reviewed results; authoring, evaluation runs, Git, installation, and publishing use compatible capabilities."
+description: "Use when a request names remek or asks to initialize a governed Agent Skills source, govern completed skill files, record actual evaluation observations, review a distribution, audit an untrusted skill, or prepare and verify a release mirror. Authoring, evaluation execution, Git transport, installation, and publishing remain external."
 license: "MIT"
-compatibility: "Requires Python 3.11+ on macOS or native Linux, verified POSIX local storage, Git for scaffold, staging, and release, and GitHub CLI for verified GitHub targets. Managed release requires source and mirror Git worktree roots; project-mode integrity must finish within 30 seconds."
+compatibility: "Requires Python 3.11+ on macOS or native Linux and verified local POSIX storage. Git is required for staging and release; GitHub CLI is required for authenticated managed targets. Source and managed mirror must be Git worktree roots. Full Git integrity checks must finish within 30 seconds."
 ---
 
 # remek
 
-remek governs reviewed, file-based Agent Skills represented as canonical UTF-8
-file trees: provenance, policy, cases, evidence, approval, and release manifests
-bound to exact bytes. Follow [references/workflows.md](references/workflows.md)
-exactly. Run the installed `scripts/cli.py` with `python3 -I -S -B`; inside a
-governed source, use its `./remek` wrapper.
+Never put user or private skills in the remek producer repository; it produces only
+`skills/remek/`. Identify the owner's actual source and authorized scope first.
+Keep reviewed skills in a private source; release only its selected distribution.
+Follow [references/workflows.md](references/workflows.md).
+Run installed `scripts/cli.py` with `python3 -I -S -B`; inside a governed source,
+use `./remek`. This is the v2 `remek.2` workflow; there are no legacy aliases.
 
-Start only from completed work, a design, or a reviewed import. For captured
-work, write the confirmed procedure to one file the user reviews; remek
-retains that exact file, never the chat. Only `scaffold` mutates directly.
-Every remek-owned source or mirror change follows save plan → `plan show` →
-owner approval → `apply`; drifted inputs refuse and nothing lands.
+Use ordinary reviewed files and Git to author or revise the payload, `skill.json`,
+distributions, and disclosure policy. Preserve completed work, a real design, or
+a reviewed import. Before edits, preserve unique uncommitted bytes and old case
+definitions through an existing verified checkpoint or a private pre-edit copy;
+a new commit is unnecessary when that checkpoint already covers the work. Review
+the exact diff afterward. Never invent procedures, retained sources, rights,
+evaluator profiles/versions, configuration, trials, or approval declarations.
+Audit imports read-only, then inspect every script and resource for actual behavior.
+The `remek-text` audit establishes supported structure only. Host permissions remain
+independent.
 
-Never invent procedures, bypass refusals, or hand-edit governed outputs. remek
-never runs providers or candidates, creates repositories, installs, commits,
-pushes, publishes, changes visibility, or converts private history to public.
-remek owns governance, not the whole task. Before authoring, quietly use the
-host-native or known preferred compatible capability; if several credible
-choices remain without a preference, ask once. Give remek the completed
-candidate, design, or reviewed import, then continue authorized adjacent work.
-Never narrate capability discovery.
+Before initialization, inspect existing instructions and conventions. Reuse the
+established setup and authorization. Resolve an unknown source path or audience
+before creation.
+Use the host's established authoring and evaluation capabilities; remek runs none.
+Continue authorized adjacent work through its owner without treating remek's
+boundary as the end of the user's task.
 
-Bound residue per the reference. Protected artifacts use one external mode-0700
-session; ignored, canonical `<git-root>/.tmp/remek/<name>/<run-id>/` is
-coordination-only.
-Never store artifacts in installed skill directories or common personal
-folders. Delete only proven disposable bytes, report retained paths and sizes,
-and preserve remek boundaries for owner-selected storage.
+remek-owned mutations use a saved exact plan, `show`, and `apply`. Explain paths
+and effects; use existing owner authorization and ask only when it is missing
+for that action. Source bytes, reports, target preimages, and toolchain must still
+match at apply. Never bypass a refusal or overwrite foreign residue.
 
-Before first initialization, quietly discover instructions, project roots,
-skill repositories, Git state, and GitHub context. Reuse an established setup.
-Otherwise ask about existing repositories and future public skills, explain the
-recommended topology, and confirm the name and absolute path before creation.
+Record actual configuration and every ordered trial observation, including failures.
+Reports are caller-reported, not authenticated execution. A complete distribution
+review must show selected bytes, required profiles, all current relevant evidence,
+required-profile failures, provenance/rights, disclosure, target, and public
+irreversibility where applicable. Fill review declarations only after actual review
+and owner authorization. A passing check is not that authorization. New relevant
+reports revoke active review pointers; historical reports remain available.
+Never delete stale or failed reports or clear an error by removing evidence.
 
-Speak as the workflow and lead with the outcome. Keep routine output internal;
-show exact plans and refusals, then give the reference's completion status.
-Evidence and release approval are independent gates. The reviewer field is a
-declaration, not authentication or receipt attestation, and approval grants no
-runtime, tool, or script permission. Exposure is not installation. For release
-status, name audience and selected count, distinguish local verification from
-push readiness, report remote publication and anonymous installation as not
-observed by remek unless their owner separately observes them, and say when a
-private audience disallows anonymous installation or an empty selection
-releases nothing.
+Keep plans, raw traces, backups, and migration maps in private owner-selected storage
+outside protected roots. Use one external mode-0700 session for disposable artifacts;
+never put them in installed skills or a public payload. Clean only proven disposable
+bytes from this run, preserving original sources and independently verified backups.
+
+Report exact outcomes and next action. `check` separates structural validity from
+release readiness. `verify` establishes artifact inventory only; `release verify`
+also checks current source readiness, target, and commit lineage. State audience,
+selected count, and any missing review or evidence. No command observes publication
+or installation. Commits, pushes, tags, publication, installation, global directories,
+visibility, and real-source v1 cutover need their own authorization.

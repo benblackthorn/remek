@@ -11,20 +11,25 @@ import subprocess
 import tempfile
 import time
 from dataclasses import replace
+from contextlib import suppress
 from pathlib import Path
 from typing import NoReturn, cast
 from urllib.parse import urlparse
 
 from .contract import (
+    SCHEMA,
     MAX_ITEMS,
     JSONObject,
     JSONValue,
+    document_limit,
     load_document,
+    parse_document,
     parse_canonical_document,
     render_document as render,
     value_count,
 )
-from .evaluation import parse_case_set, receipt_document
+from .evaluation import evaluation_document, validate_evaluation
+from .review import relevant_evidence, release_findings, validate_review
 from .filesystem import (
     Tree,
     TreeDirectory as Directory,
@@ -43,13 +48,10 @@ from .filesystem import (
     snapshot_tree as snapshot,
     tree_from_entries as assemble,
 )
-from .frontmatter import FrontmatterError, parse_skill, render_skill
 from .model import Error, valid_skill_name
 from .plans import Plan, SourceBinding
 from .repository import (
     DISCLOSURE_PATH,
-    INJECTED_METADATA_KEYS,
-    MAX_RECORD_BYTES,
     MAX_RECORDS,
     MAX_REPO_GOV,
     MAX_SKILL_GOV,
@@ -57,34 +59,19 @@ from .repository import (
     Config,
     DisclosurePolicy,
     Distribution,
-    Provenance,
     RepositoryInspection as Inspection,
     Skill,
-    SkillPolicy,
-    candidate_findings,
     credential_findings,
     disclosure_credential_findings,
     evaluation_plan,
-    load_candidate,
     loaded_bootstrap,
-    merge_disclosure,
     new_config,
-    parse_disclosure,
     parse_distribution,
-    parse_policy,
-    parse_provenance,
-    readme_change,
-    release_findings,
-    repair_changes,
     inspect_repository as inspect,
     repository_findings as check,
-    validate_approval,
 )
-from .transaction import Change, apply_changes, delete_change, tree_change, write_change as write
+from .transaction import Change, delete_change, tree_change, write_change as write
 
-_LIFECYCLE_RANK = {"retired": -1, "draft": 0, "ready": 1}
-_EXPOSURE_RANK = {"source-only": 0, "private-only": 1, "public-eligible": 2}
-_WORKSPACE_KEYS = {"schema", "kind", "mode", "skill", "origin", "sourcePath", "base"}
 _PROCESS_OUTPUT_LIMIT = 4 * 1024 * 1024
 _PROCESS_TIMEOUT_SECONDS = 30  # Fixed subprocess contract; see docs/contracts.md.
 _TARGET_OUTPUT_LIMIT = 64 * 1024
@@ -100,6 +87,7 @@ _RELEASE_KEYS = {
     "distributionIdentity",
     "releaseId",
     "releaseSetDigest",
+    "reviewDigest",
     "payloadDigest",
     "candidates",
     "directories",
@@ -156,6 +144,8 @@ def _hex(value: object, lengths: tuple[int, ...] = (64,)) -> bool:
 
 
 def _release_path(value: str) -> str:
+    if credential_findings(value, "release path"):
+        raise Error("release.credential", "release path contains credential-shaped content")
     portable = portable_path(value, authored=True)
     if "\\" in value or ".remek" in portable.split("/") or portable.endswith("/.gitattributes"):
         raise Error("release.payload-path", "release payload path is unsupported")
@@ -188,6 +178,7 @@ def _manifest(  # noqa: PLR0912, PLR0915
                 "distributionIdentity",
                 "releaseId",
                 "releaseSetDigest",
+                "reviewDigest",
                 "payloadDigest",
             )
         )
@@ -301,6 +292,8 @@ def _manifest(  # noqa: PLR0912, PLR0915
         invalid()
     path_values = cast(list[str], paths)
     ledger = path_values[:-1]
+    if any(credential_findings(path, "release path") for path in ledger):
+        invalid()
     if ledger != sorted(set(ledger)) or any(not path.startswith("skills/") for path in ledger):
         invalid()
     try:
@@ -353,39 +346,85 @@ def _size(path: Path) -> int:
 
 
 def _bound(
-    root: Path,
     path: Path,
     size: int,
     *,
     skill: Path | None = None,
-    record: bool = False,
+    record_kind: str,
 ) -> None:
     old = _size(path)
-    if (
-        (record and size > MAX_RECORD_BYTES)
-        or sum(
-            _size(root / item)
-            for item in (".remek/disclosure-policy.json", ".remek/distributions", ".remek/skills")
-        )
-        - old
-        + size
-        > MAX_REPO_GOV
-        or (skill is not None and _size(skill) - old + size > MAX_SKILL_GOV)
+    if size > document_limit(record_kind) or (
+        skill is not None and _size(skill) - old + size > MAX_SKILL_GOV
     ):
         raise Error("governance.bounds", "planned governance exceeds bounds")
+
+
+def _bound_changes(root: Path, changes: list[Change]) -> None:
+    size = sum(
+        _size(root / path)
+        for path in (
+            ".remek/disclosure-policy.json",
+            ".remek/distributions",
+            ".remek/skills",
+            ".remek/reviews",
+        )
+    )
+    for change in changes:
+        after = (
+            sum(len(item.data) for item in change.tree.files)
+            if change.tree is not None
+            else len(change.data or b"")
+        )
+        size += after - _size(change.path)
+    if size > MAX_REPO_GOV:
+        raise Error("governance.bounds", "planned governance exceeds source bounds")
 
 
 def _one(change: Change) -> tuple[Change, ...]:
     return () if change.expected == change.after else (change,)
 
 
-def _owned_write(root: Path, destination: Path, data: bytes, reason: str) -> Change:
+def _owned_write(root: Path, destination: Path, data: bytes, reason: str) -> tuple[Change, ...]:
+    if exists(destination):
+        if read(destination, limit=len(data)).data != data:
+            raise Error("governance.identity", "existing immutable record bytes differ")
+        return ()
     parent = destination.parent
     if real_directory(parent):
-        return write(root, destination, data, reason)
+        return (write(root, destination, data, reason),)
     if exists(parent):
         raise Error("governance.layout", "governance record directory must be real")
-    return tree_change(root, parent, assemble([File(destination.name, data, 0o644)]), reason)
+    return (tree_change(root, parent, assemble([File(destination.name, data, 0o644)]), reason),)
+
+
+def _review_pointer(root: Path, dist: Distribution, value: str | None, reason: str) -> Change:
+    path = root / ".remek/distributions" / f"{dist.distribution_id}.json"
+    before = fingerprint(path)
+    source = read(path, limit=document_limit("distribution"))
+    if parse_distribution(parse_document(source.data, kind="distribution")) != dist:
+        raise Error("distribution.drift", "distribution changed since inspection; re-plan")
+    text = source.data.decode()
+    decoder = json.JSONDecoder()
+    position = text.index("{") + 1
+    # Walk only top-level key/value tokens in the bounded, strictly validated document.
+    while True:
+        while text[position] in " \t\r\n,":
+            position += 1
+        key, position = decoder.raw_decode(text, position)
+        position = text.index(":", position) + 1
+        while text[position] in " \t\r\n":
+            position += 1
+        start = position
+        _, position = decoder.raw_decode(text, position)
+        if key == "activeReview":
+            break
+    output = (text[:start] + json.dumps(value) + text[position:]).encode()
+    if len(output) > document_limit("distribution"):
+        raise Error("governance.bounds", "updated distribution exceeds its byte bound")
+    change = write(root, path, output, reason, mode=source.identity.mode)
+    if change.expected != before:
+        raise Error("distribution.drift", "distribution changed while planning; re-plan")
+    return change
 
 
 def _record(
@@ -396,14 +435,14 @@ def _record(
     data: bytes,
 ) -> tuple[str, tuple[Change, ...]]:
     noun = folder.rstrip("s")
-    _screen(inspection, data, f"{noun} receipt")
+    _screen(inspection, data, f"{noun} record")
     digest = _hash(data)
     destination = root / ".remek" / "skills" / skill_name / folder / f"{digest}.json"
     skill = inspection.skill(skill_name)
-    if not exists(destination) and len(skill.evidence) + len(skill.approvals) >= MAX_RECORDS:
+    if not exists(destination) and len(skill.evidence) >= MAX_RECORDS:
         raise Error("governance.bounds", "skill record count exceeds bounds")
-    _bound(root, destination, len(data), skill=destination.parent.parent, record=True)
-    return digest, _one(_owned_write(root, destination, data, f"record immutable reviewed {noun}"))
+    _bound(destination, len(data), skill=destination.parent.parent, record_kind="evaluation")
+    return digest, _owned_write(root, destination, data, f"record immutable reviewed {noun}")
 
 
 def _prefix(source: Tree, prefix: str) -> tuple[list[File], list[Directory]]:
@@ -415,18 +454,6 @@ def _prefix(source: Tree, prefix: str) -> tuple[list[File], list[Directory]]:
     return files, directories
 
 
-def _replace(root: Path, destination: Path, tree: Tree, reason: str) -> Change:
-    parts = destination.relative_to(root).parts
-    cursor = root
-    for index, part in enumerate(parts[:-1]):
-        cursor /= part
-        if exists(cursor):
-            continue
-        files, directories = _prefix(tree, "/".join(parts[index + 1 :]))
-        return tree_change(root, cursor, assemble(files, directories), reason)
-    return tree_change(root, destination, tree, reason)
-
-
 def _external(root: Path, path: Path, label: str) -> SourceBinding:
     selected = path.expanduser().absolute()
     canonical = checked(selected.parent) / selected.name
@@ -436,12 +463,13 @@ def _external(root: Path, path: Path, label: str) -> SourceBinding:
     return binding
 
 
-def _init_state(toolchain: Tree, config: Config, name: str) -> Tree:
+def _init_state(toolchain: Tree, config: Config) -> Tree:
     files, directories = _prefix(toolchain, ".remek/toolchain")
     directories.extend(
         [
             Directory(".remek/distributions"),
             Directory(".remek/skills"),
+            Directory(".remek/reviews"),
         ]
     )
     files.extend(
@@ -450,16 +478,6 @@ def _init_state(toolchain: Tree, config: Config, name: str) -> Tree:
             File(
                 DISCLOSURE_PATH,
                 DisclosurePolicy(()).render(),
-                0o644,
-            ),
-            File(
-                "README.md",
-                (
-                    f"# {name}\n\n## Skills\n\n"
-                    "<!-- remek-skills:start -->\n"
-                    "| Skill | Description |\n| --- | --- |\n"
-                    "<!-- remek-skills:end -->\n"
-                ).encode(),
                 0o644,
             ),
             File(".gitignore", b".DS_Store\n__pycache__/\n.venv/\n/.tmp/\n", 0o644),
@@ -487,7 +505,7 @@ def init_plan(
         skills_root=".agents/skills" if project else "skills",
     )
     toolchain = snapshot(checked(bundle), reject_bytecode=True)
-    state = _init_state(toolchain, config, canonical.name)
+    state = _init_state(toolchain, config)
     inputs: JSONObject = {"target": str(canonical), "project": project}
     generated: JSONObject = {"repositoryId": config.repository_id}
     if not exists(canonical):
@@ -538,201 +556,7 @@ def init_plan(
         changes.append(
             write(root, root / ".gitignore", files[".gitignore"].data, "ignore local residue")
         )
-    readme = readme_change(root, ())
-    if readme is not None:
-        changes.append(readme)
     return Plan("init", root, tuple(changes), inputs, generated)
-
-
-def _case_skeletons() -> tuple[bytes, bytes]:
-    routing = render(
-        "routing-cases",
-        {
-            "cases": [
-                {
-                    "id": "activate",
-                    "prompt": "Use this skill for its intended task.",
-                    "shouldActivate": True,
-                },
-                {
-                    "id": "stay-inactive",
-                    "prompt": "Handle an unrelated task without this skill.",
-                    "shouldActivate": False,
-                },
-            ]
-        },
-    )
-    behavior = render(
-        "behavior-cases",
-        {
-            "cases": [
-                {
-                    "id": "intended-workflow",
-                    "prompt": "Complete the skill's intended workflow.",
-                    "expectations": [
-                        "The declared outcome is produced.",
-                        "The skill's stated boundaries are respected.",
-                    ],
-                }
-            ]
-        },
-    )
-    return routing, behavior
-
-
-def _candidate_skeleton(name: str) -> Tree:
-    data = render_skill(
-        {"name": name, "description": "[TODO] Describe when this skill should activate."},
-        f"# {name}\n\n[TODO]\n",
-    )
-    return assemble([File("SKILL.md", data, 0o644)])
-
-
-def _normalized_import(path: Path, name: str) -> Tree:
-    canonical = checked(path)
-    if canonical.name != name:
-        raise Error(
-            "scaffold.import",
-            "imported directory basename and SKILL.md name must both match --name",
-        )
-    tree = snapshot(canonical, reject_bytecode=True)
-    files = list(tree.files)
-    index = next((position for position, item in enumerate(files) if item.path == "SKILL.md"), None)
-    if index is None:
-        raise Error("scaffold.import", "imported source lacks SKILL.md")
-    item = files[index]
-    try:
-        fields, body = parse_skill(item.data.decode("utf-8", errors="strict"))
-    except (UnicodeDecodeError, FrontmatterError) as exc:
-        raise Error("scaffold.import", f"imported SKILL.md is invalid: {exc}") from None
-    if fields.get("name") != name:
-        raise Error("scaffold.import", "imported skill name must match --name")
-    metadata = fields.get("metadata")
-    if isinstance(metadata, dict):
-        normalized_metadata = {
-            key: value for key, value in metadata.items() if key not in INJECTED_METADATA_KEYS
-        }
-        fields = {**fields, "metadata": normalized_metadata}
-        if not normalized_metadata:
-            fields.pop("metadata")
-    try:
-        normalized_skill = render_skill(fields, body)
-    except FrontmatterError as exc:
-        raise Error(
-            "scaffold.import",
-            f"imported SKILL.md is outside remek's supported profile: {exc}",
-        ) from None
-    files[index] = File("SKILL.md", normalized_skill, item.mode)
-    return assemble(files, list(tree.directories), root_mode=tree.root_mode)
-
-
-def _workspace_tree_new(name: str, origin: str, source: Path | None) -> Tree:
-    if origin not in {"captured", "designed", "imported"}:
-        raise Error("scaffold.origin", "origin must be captured, designed, or imported")
-    if source is None:
-        raise Error("scaffold.source", f"{origin} origin requires --source")
-    candidate = (
-        _normalized_import(source, name) if origin == "imported" else _candidate_skeleton(name)
-    )
-    if origin == "captured":
-        source_data = read(source).data
-        suffix = source.suffix if len(source.suffix) <= 16 else ".txt"
-        source_label = _hash(source_data) + (suffix or ".txt")
-    elif origin == "designed":
-        source_data = read(source).data
-        source_label = "design-brief.md"
-    else:
-        source_label = "import-manifest.json"
-        source_data = render(
-            "import-source",
-            {
-                "upstreamRepository": "",
-                "upstreamRef": "",
-                "candidate": candidate.digest,
-            },
-        )
-    record = Provenance(
-        name,
-        origin,
-        _hash(source_data),
-        source_label,
-        "",
-        "",
-        candidate.digest if origin == "imported" else "",
-        "",
-        "",
-        "",
-    )
-    routing, behavior = _case_skeletons()
-    base: JSONObject = {
-        "candidate": None,
-        "policy": None,
-        "provenance": None,
-        "routingCases": None,
-        "behaviorCases": None,
-    }
-    manifest = render(
-        "workspace",
-        {
-            "mode": "new",
-            "skill": name,
-            "origin": origin,
-            "sourcePath": f"sources/{source_label}",
-            "base": base,
-        },
-    )
-    files, directories = _prefix(candidate, "candidate")
-    directories.append(Directory("sources"))
-    files.extend(
-        [
-            File("workspace.json", manifest, 0o644),
-            File(
-                "policy.json",
-                SkillPolicy(name, "draft", "source-only", "new skill").render(),
-                0o644,
-            ),
-            File("provenance.json", record.render(), 0o644),
-            File("routing-cases.json", routing, 0o644),
-            File("behavior-cases.json", behavior, 0o644),
-            File(f"sources/{source_label}", source_data, 0o600),
-        ]
-    )
-    return assemble(files, directories, root_mode=0o700)
-
-
-def _skill_records(skill: Skill) -> list[File]:
-    return [
-        File("policy.json", skill.policy.render(), 0o644),
-        File("provenance.json", skill.provenance.render(), 0o644),
-        File("routing-cases.json", skill.routing_cases.render(), 0o644),
-        File("behavior-cases.json", skill.behavior_cases.render(), 0o644),
-    ]
-
-
-def _workspace_tree_revision(skill: Skill, root: Path) -> Tree:
-    files, directories = _prefix(skill.tree, "candidate")
-    sources = snapshot(root / ".remek" / "skills" / skill.name / "sources", reject_bytecode=True)
-    source_files, source_dirs = _prefix(sources, "sources")
-    files.extend(source_files)
-    directories.extend(source_dirs)
-    files.append(
-        File(
-            "workspace.json",
-            render(
-                "workspace",
-                {
-                    "mode": "revision",
-                    "skill": skill.name,
-                    "origin": skill.provenance.origin,
-                    "sourcePath": f"sources/{skill.provenance.source_label}",
-                    "base": _base_identity(skill),
-                },
-            ),
-            0o644,
-        )
-    )
-    files.extend(_skill_records(skill))
-    return assemble(files, directories, root_mode=0o700)
 
 
 def _git_checkout_containing(path: Path, forbidden_roots: tuple[Path, ...]) -> Path | None:
@@ -747,7 +571,7 @@ def _git_checkout_containing(path: Path, forbidden_roots: tuple[Path, ...]) -> P
         if exc.code == "external.unavailable" and exc.message.startswith("cannot run git"):
             raise Error(
                 "git.required",
-                "Git is required for scaffold and staging checkout-boundary checks; " + exc.message,
+                "Git is required for staging checkout-boundary checks; " + exc.message,
             ) from None
         raise
     if completed.returncode != 0:
@@ -755,481 +579,13 @@ def _git_checkout_containing(path: Path, forbidden_roots: tuple[Path, ...]) -> P
     return Path(completed.stdout.strip()).resolve()
 
 
-def scaffold_workspace(  # noqa: PLR0913
-    root: Path,
-    workspace: Path,
-    *,
-    name: str | None = None,
-    origin: str | None = None,
-    source: Path | None = None,
-    skill_name: str | None = None,
-    bundle: Path | None = None,
-) -> dict[str, object]:
-    root = checked(root)
-    selected = workspace.expanduser().absolute()
-    parent = checked(selected.parent)
-    canonical = parent / selected.name
-    if (skill_name is None) == (name is None):
-        raise Error("scaffold.mode", "choose exactly one of --name or --skill")
-    selected_name = skill_name if skill_name is not None else name
-    if not valid_skill_name(selected_name):
-        raise Error("scaffold.name", "skill name must be lowercase words joined by hyphens")
-    loaded_toolchain = (
-        checked(bundle)
-        if bundle is not None
-        else next(
-            (
-                path
-                for path in (root / ".remek/toolchain", root / "skills/remek/toolchain")
-                if real_directory(path)
-            ),
-            None,
-        )
-    )
-    if loaded_toolchain is None:
-        raise Error("scaffold.toolchain", "source has no usable toolchain")
-    if canonical != selected:
-        raise Error(
-            "scaffold.boundary",
-            f"actual workspace path resolves to {canonical}; expected the exact canonical path; "
-            f"repair: rerun with --workspace {canonical}",
-        )
-    if (
-        exists(canonical)
-        or paths_related(root, canonical)
-        or paths_related(loaded_toolchain, canonical)
-    ):
-        raise Error(
-            "scaffold.boundary", "workspace conflict; none created; choose absent path outside"
-        )
-    if source is not None:
-        source = source.expanduser().absolute()
-    if any(exists(ancestor / _RELEASE_FILE) for ancestor in (parent, *parent.parents)):
-        raise Error(
-            "scaffold.boundary",
-            "workspace under release tree; none created; choose absent path outside",
-        )
-    forbidden = (
-        root,
-        canonical,
-        loaded_toolchain,
-        *((source,) if source is not None else ()),
-    )
-    checkout = _git_checkout_containing(parent, forbidden)
-    if checkout is not None:
-        raise Error(
-            "scaffold.checkout", "workspace in Git; none created; choose absent path outside"
-        )
-    if skill_name is not None:
-        inspection = inspect(root)
-        _preflight(inspection, "scaffold")
-        tree = _workspace_tree_revision(inspection.skill(skill_name), root)
-        mode = "revision"
-    else:
-        if origin is None:
-            raise Error("scaffold.origin", "new skills require --origin")
-        tree = _workspace_tree_new(cast(str, name), origin, source)
-        mode = "new"
-    outcome = apply_changes(
-        (tree_change(parent, canonical, tree, "create one disposable authoring workspace"),)
-    )
-    if not outcome.changed:
-        raise Error("scaffold.outcome", "workspace was not created")
-    return {"workspace": str(canonical), "skill": selected_name, "mode": mode}
-
-
-def _workspace_document(path: Path) -> JSONObject:
-    document = load_document(path / "workspace.json", kind="workspace")
-    base = document.get("base")
-    expected = {"candidate", "policy", "provenance", "routingCases", "behaviorCases"}
-    if (
-        set(document) != _WORKSPACE_KEYS
-        or not isinstance(document.get("mode"), str)
-        or document.get("mode") not in ("new", "revision")
-        or not isinstance(document.get("origin"), str)
-        or document.get("origin") not in ("captured", "designed", "imported")
-        or not isinstance(document.get("skill"), str)
-        or not isinstance(document.get("sourcePath"), str)
-        or not isinstance(base, dict)
-        or set(base) != expected
-        or any(value is not None and not isinstance(value, str) for value in base.values())
-        or (document.get("mode") == "new" and any(value is not None for value in base.values()))
-    ):
-        raise Error("accept.workspace", "invalid workspace; source unchanged; restore/scaffold")
-    return document
-
-
-def _records(root: Path, name: str, folder: str) -> tuple[list[File], list[Directory]]:
-    path = root / ".remek" / "skills" / name / folder
-    if not real_directory(path):
-        return [], []
-    tree = snapshot(path, reject_bytecode=True)
-    return _prefix(tree, folder)
-
-
-def _governance_tree(
-    root: Path,
-    skill: Skill,
-    sources: Tree,
-    *,
-    preserve_records: bool,
-) -> Tree:
-    files, directories = _prefix(sources, "sources")
-    directories.extend([Directory("evidence"), Directory("approvals")])
-    if preserve_records:
-        for folder in ("evidence", "approvals"):
-            record_files, record_directories = _records(root, skill.name, folder)
-            files.extend(record_files)
-            directories.extend(
-                item for item in record_directories if item.path not in {"evidence", "approvals"}
-            )
-    files.extend(_skill_records(skill))
-    return assemble(files, directories)
-
-
-def _base_identity(skill: Skill) -> JSONObject:
-    return {
-        "candidate": skill.digest,
-        "policy": _hash(skill.policy.render()),
-        "provenance": skill.provenance.digest,
-        "routingCases": skill.routing_cases.digest,
-        "behaviorCases": skill.behavior_cases.digest,
-    }
-
-
-def _workspace_skill(root: Path, workspace: Path, document: JSONObject) -> tuple[Skill, Tree]:
-    name = cast(str, document["skill"])
-    candidate, fields, body, digest = load_candidate(workspace / "candidate")
-    policy = parse_policy(load_document(workspace / "policy.json", kind="skill-policy"), name)
-    record = parse_provenance(load_document(workspace / "provenance.json", kind="provenance"), name)
-    if record.origin != document.get("origin"):
-        raise Error("accept.provenance", "workspace origin and provenance differ")
-    routing = load_document(workspace / "routing-cases.json", kind="routing-cases")
-    behavior = load_document(workspace / "behavior-cases.json", kind="behavior-cases")
-    routing_cases = parse_case_set(routing, "routing")
-    behavior_cases = parse_case_set(behavior, "behavior")
-    source_path = cast(str, document["sourcePath"])
-    if not source_path.startswith("sources/") or source_path.count("/") != 1:
-        raise Error("accept.source", "workspace sourcePath must name one retained source")
-    source_label = source_path.split("/", 1)[1]
-    source_data = read(workspace / source_path).data
-    sources = snapshot(workspace / "sources", reject_bytecode=True)
-    if record.origin == "imported":
-        if source_label != "import-manifest.json":
-            raise Error("accept.source", "imported provenance requires import-manifest.json")
-        source_data = render(
-            "import-source",
-            {
-                "upstreamRepository": record.upstream_repository,
-                "upstreamRef": record.upstream_ref,
-                "candidate": record.upstream_candidate,
-            },
-        )
-        sources = assemble(
-            [
-                File(item.path, source_data if item.path == source_label else item.data, item.mode)
-                for item in sources.files
-            ],
-            list(sources.directories),
-            root_mode=sources.root_mode,
-        )
-    record = replace(
-        record,
-        source_digest=_hash(source_data),
-        source_label=source_label,
-    )
-    path = root / "skills" / name
-    skill = Skill(
-        name,
-        path,
-        fields,
-        body,
-        digest,
-        candidate,
-        policy,
-        record,
-        routing_cases,
-        behavior_cases,
-        (),
-        (),
-    )
-    return skill, sources
-
-
-def accept_plan(root: Path, workspace: Path) -> Plan:  # noqa: PLR0912, PLR0915
-    root = checked(root)
-    inspection = inspect(root)
-    _preflight(inspection, "accept")
+def _source_bindings(inspection: Inspection) -> JSONObject:
     if inspection.config is None:
-        raise Error("accept.config", "repository configuration is unavailable")
-    selected = checked(workspace)
-    binding = _external(root, selected, "accept workspace")
-    workspace_tree = snapshot(selected, reject_bytecode=True)
-    top_files = {item.path for item in workspace_tree.files if "/" not in item.path}
-    top_directories = {item.path for item in workspace_tree.directories if "/" not in item.path}
-    expected_files = {
-        "workspace.json",
-        "policy.json",
-        "provenance.json",
-        "routing-cases.json",
-        "behavior-cases.json",
-    }
-    if (
-        workspace_tree.root_mode != 0o700
-        or top_files != expected_files
-        or top_directories != {"candidate", "sources"}
-        or any(item.path.startswith("sources/") for item in workspace_tree.directories)
-    ):
-        raise Error(
-            "accept.workspace",
-            "workspace mode or top-level layout invalid; source unchanged; restore/scaffold",
-        )
-    document = _workspace_document(selected)
-    skill, sources = _workspace_skill(root, selected, document)
-    mode = cast(str, document["mode"])
-    current = next((item for item in inspection.skills if item.name == skill.name), None)
-    if mode == "new":
-        if len(inspection.config.governed_skills) >= MAX_SKILLS:
-            raise Error("governance.bounds", "governed skill count exceeds bounds")
-        if current is not None or skill.name in inspection.config.governed_skills:
-            raise Error("accept.collision", "skill exists; source unchanged; revise or rename")
-        destination = root / inspection.config.skills_root / skill.name
-        if exists(destination):
-            raise Error(
-                "accept.collision", "path ungoverned; source unchanged; rename or migrate it"
-            )
-        if skill.policy.lifecycle != "draft" or skill.policy.exposure != "source-only":
-            raise Error(
-                "accept.state",
-                f"actual lifecycle/exposure is {skill.policy.lifecycle}/{skill.policy.exposure}; "
-                "expected draft/source-only for a new skill; repair: set both values "
-                "in policy.json",
-            )
-        preserve_records = False
-    else:
-        if current is None:
-            raise Error(
-                "accept.revision", "skill missing; source unchanged; restore or scaffold new"
-            )
-        base = cast(JSONObject, document["base"])
-        if base != _base_identity(current):
-            raise Error(
-                "accept.base-drift",
-                "base changed; source unchanged; scaffold the skill again",
-            )
-        candidate_changed = current.digest != skill.digest
-        if candidate_changed:
-            if _EXPOSURE_RANK[skill.policy.exposure] > _EXPOSURE_RANK[current.policy.exposure]:
-                raise Error(
-                    "accept.exposure",
-                    "revision raises exposure; source unchanged; promote separately",
-                )
-            skill = replace(
-                skill,
-                policy=replace(skill.policy, lifecycle="draft", state_reason="candidate revision"),
-            )
-        else:
-            raised = (
-                _LIFECYCLE_RANK[skill.policy.lifecycle] > _LIFECYCLE_RANK[current.policy.lifecycle]
-                or _EXPOSURE_RANK[skill.policy.exposure] > _EXPOSURE_RANK[current.policy.exposure]
-            )
-            if raised and (
-                not skill.policy.state_reason.strip()
-                or skill.policy.state_reason == current.policy.state_reason
-            ):
-                raise Error(
-                    "accept.transition",
-                    "stateReason missing; source unchanged; add owner reason",
-                )
-        preserve_records = not candidate_changed
-        skill = replace(skill, evidence=current.evidence, approvals=current.approvals)
-    configured_path = root / inspection.config.skills_root / skill.name
-    skill = replace(skill, path=configured_path)
-    issues = candidate_findings(skill, root)
-    errors = [item for item in issues if item.severity == "error"]
-    for item in workspace_tree.files:
-        try:
-            text = item.data.decode("utf-8", errors="strict")
-        except UnicodeDecodeError:
-            continue
-        errors.extend(credential_findings(text, item.path))
-        if inspection.disclosure:
-            errors.extend(disclosure_credential_findings(text, item.path, inspection.disclosure))
-    if errors:
-        first = errors[0]
-        raise Error(
-            "accept.invalid",
-            f"{first.code}: {first.message} ({first.path}); source unchanged; correct it",
-        )
-    state = _governance_tree(root, skill, sources, preserve_records=preserve_records)
-    governance_path = root / ".remek" / "skills" / skill.name
-    _bound(
-        root,
-        governance_path,
-        sum(len(item.data) for item in state.files),
-        skill=governance_path,
-    )
-    changes = [
-        _replace(root, configured_path, skill.tree, "accept the complete reviewed candidate"),
-        _replace(
-            root,
-            governance_path,
-            state,
-            "accept candidate governance and retained source",
-        ),
-    ]
-    if inspection.bundle == root / "skills/remek/toolchain" and skill.name == "remek":
-        files = {item.path: item for item in skill.tree.files}
-        bootstrap = files.get("scripts/cli.py")
-        if bootstrap is None:
-            raise Error("accept.toolchain", "producer candidate lacks remek shim")
-        changes.append(
-            write(root, root / "remek", bootstrap.data, "synchronize root remek", mode=0o755)
-        )
-        for shim, source in _SHIMS.items():
-            canonical = files.get(f"toolchain/{source}")
-            if canonical is None:
-                raise Error("accept.toolchain", f"producer candidate lacks {shim} shim")
-            changes.append(
-                write(root, root / shim, canonical.data, f"synchronize root {shim}", mode=0o755)
-            )
-    changes = [item for item in changes if item.expected != item.after]
-    if mode == "new":
-        config = replace(
-            inspection.config,
-            governed_skills=tuple(sorted((*inspection.config.governed_skills, skill.name))),
-        )
-        changes.append(write(root, root / "remek.json", config.render(), "add governed skill"))
-    projected = tuple(
-        sorted(
-            [item for item in inspection.skills if item.name != skill.name] + [skill],
-            key=lambda item: item.name,
-        )
-    )
-    readme = readme_change(root, projected)
-    if readme is not None:
-        changes.append(readme)
-    inputs: JSONObject = {"workspace": str(selected)}
-    bindings: JSONObject = {"mode": mode, **_base_identity(skill)}
-    return Plan(
-        "accept",
-        root,
-        tuple(changes),
-        inputs,
-        bindings=bindings,
-        sources=(binding,),
-        data={"skill": skill.name, "mode": mode},
-    )
-
-
-def distribution_accept_plan(root: Path, source: Path) -> Plan:
-    root = checked(root)
-    inspection = inspect(root)
-    _preflight(inspection, "distribution accept")
-    binding = _external(root, source, "distribution artifact")
-    distribution = parse_distribution(load_document(binding.path, kind="distribution"))
-    by_name = {item.name: item for item in inspection.skills}
-    for name in distribution.skills:
-        skill = by_name.get(name)
-        if skill is None:
-            raise Error("distribution.skill", f"unknown governed skill: {name}")
-        if skill.policy.exposure == "source-only" or (
-            distribution.audience == "public" and skill.policy.exposure != "public-eligible"
-        ):
-            raise Error("distribution.exposure", f"audience exceeds {name} exposure")
-    destination = root / ".remek" / "distributions" / f"{distribution.distribution_id}.json"
-    output = distribution.render()
-    _screen(inspection, output, str(destination.relative_to(root)))
-    if (not exists(destination) and len(inspection.distributions) >= MAX_RECORDS) or _size(
-        root / ".remek/distributions"
-    ) - _size(destination) + len(output) > MAX_SKILL_GOV:
-        raise Error("governance.bounds", "planned distributions exceed bounds")
-    _bound(root, destination, len(output), record=True)
-    change = _owned_write(root, destination, output, "accept reviewed distribution")
-    changes = _one(change)
-    return Plan(
-        "distribution-accept",
-        root,
-        changes,
-        {"source": str(binding.path)},
-        bindings={"distributionContextDigest": distribution.context_digest},
-        sources=(binding,),
-        data={"distribution": distribution.distribution_id},
-    )
-
-
-def disclosure_accept_plan(root: Path, source: Path) -> Plan:
-    root = checked(root)
-    inspection = inspect(root)
-    _preflight(inspection, "disclosure accept")
-    if inspection.disclosure is None:
-        raise Error("disclosure.current", "current disclosure policy is unavailable")
-    binding = _external(root, source, "disclosure artifact")
-    authored = parse_disclosure(
-        load_document(binding.path, kind="disclosure-policy"), canonical=False
-    )
-    merged = merge_disclosure(inspection.disclosure, authored)
-    output = merged.render()
-    _screen(inspection, output, DISCLOSURE_PATH)
-    _bound(root, root / DISCLOSURE_PATH, len(output), record=True)
-    change = write(root, root / DISCLOSURE_PATH, output, "accept disclosure policy")
-    changes = _one(change)
-    return Plan(
-        "disclosure-accept",
-        root,
-        changes,
-        {"source": str(binding.path)},
-        bindings={"policyDigest": _hash(output)},
-        sources=(binding,),
-    )
-
-
-def retire_plan(root: Path, skill_name: str, reason: str) -> Plan:
-    root = checked(root)
-    inspection = inspect(root)
-    _preflight(inspection, "retire")
-    skill = inspection.skill(skill_name)
-    if not reason.strip() or len(reason) > 500:
-        raise Error("retire.reason", "reason must be 1 to 500 characters")
-    _screen(inspection, reason.encode(), "retirement reason")
-    policy = replace(skill.policy, lifecycle="retired", state_reason=reason)
-    path = root / ".remek" / "skills" / skill_name / "policy.json"
-    output = policy.render()
-    _bound(root, path, len(output), skill=path.parent, record=True)
-    change = write(root, path, output, "retire governed skill")
-    changes = _one(change)
-    return Plan("retire", root, changes, {"skill": skill_name, "reason": reason})
-
-
-def remove_plan(root: Path, skill_name: str) -> Plan:
-    root = checked(root)
-    inspection = inspect(root)
-    _preflight(inspection, "remove")
-    skill = inspection.skill(skill_name)
-    selected = [
-        item.distribution_id for item in inspection.distributions if skill_name in item.skills
-    ]
-    if selected:
-        raise Error("remove.distributed", f"skill remains in distribution {selected[0]}")
-    if inspection.config is None:
-        raise Error("remove.config", "repository configuration is unavailable")
-    config = replace(
-        inspection.config,
-        governed_skills=tuple(
-            name for name in inspection.config.governed_skills if name != skill_name
-        ),
-    )
-    changes: list[Change] = [
-        delete_change(root, skill.path, "remove governed candidate"),
-        delete_change(root, root / ".remek" / "skills" / skill_name, "remove governed record"),
-        write(root, root / "remek.json", config.render(), "remove governed skill identity"),
-    ]
-    readme = readme_change(
-        root, tuple(item for item in inspection.skills if item.name != skill_name)
-    )
-    if readme is not None:
-        changes.append(readme)
-    return Plan("remove", root, tuple(changes), {"skill": skill_name})
+        raise Error("governance.config", "repository configuration is unavailable")
+    root = inspection.root
+    paths = [root / "remek.json", root / ".remek"]
+    paths.extend(skill.path for skill in inspection.skills)
+    return {str(path): fingerprint(path) for path in paths}
 
 
 def eval_record_plan(root: Path, skill_name: str, evidence: Path) -> Plan:
@@ -1237,63 +593,118 @@ def eval_record_plan(root: Path, skill_name: str, evidence: Path) -> Plan:
     inspection = inspect(root)
     _preflight(inspection, "eval record")
     binding = _external(root, evidence, "evidence artifact")
-    document = load_document(binding.path, kind="eval-evidence")
-    kind = document.get("evidenceKind")
-    distribution = document.get("distribution")
+    document = load_document(binding.path, kind="evaluation")
+    kind, distribution = document.get("evidenceKind"), document.get("distribution")
     if not isinstance(kind, str) or (
         distribution is not None and not isinstance(distribution, str)
     ):
         raise Error("evidence.shape", "evidence kind or distribution is invalid")
-    plan = evaluation_plan(inspection, skill_name, kind, distribution)
-    receipt = receipt_document(document, plan)
-    digest, changes = _record(root, inspection, skill_name, "evidence", receipt)
+    evaluation = evaluation_plan(inspection, skill_name, kind, distribution)
+    output = evaluation_document(document, evaluation)
+    normalized, passed = validate_evaluation(document, evaluation)
+    digest, records = _record(root, inspection, skill_name, "evidence", output)
+    changes = list(records)
+    revoked: list[str] = []
+    if records:
+        skill = inspection.skill(skill_name)
+        updated_skill = replace(skill, evidence=(*skill.evidence, normalized))
+        updated = replace(
+            inspection,
+            skills=tuple(
+                updated_skill if item.name == skill_name else item for item in inspection.skills
+            ),
+        )
+        for dist in inspection.distributions:
+            if (
+                skill_name in dist.skills
+                and dist.active_review is not None
+                and any(
+                    report_id == digest
+                    for report_id, *_ in relevant_evidence(
+                        updated, dist.distribution_id, skill_name
+                    )
+                )
+            ):
+                changes.append(
+                    _review_pointer(
+                        root,
+                        dist,
+                        None,
+                        "revoke active review after new relevant evidence",
+                    )
+                )
+                revoked.append(dist.distribution_id)
+    _bound_changes(root, changes)
     return Plan(
         "eval-record",
         root,
-        changes,
+        tuple(changes),
         {"skill": skill_name, "evidence": str(binding.path)},
-        bindings={"receiptDigest": digest},
+        bindings={"reportId": digest, "source": _source_bindings(inspection)},
         sources=(binding,),
+        data={"reportId": digest, "reportedPassing": passed, "revokedDistributions": revoked},
     )
 
 
-def approve_record_plan(root: Path, distribution: str, skill_name: str, artifact: Path) -> Plan:
+def review_record_plan(root: Path, distribution: str, artifact: Path) -> Plan:
     root = checked(root)
     inspection = inspect(root)
-    _preflight(inspection, "approve record")
-    binding = _external(root, artifact, "approval artifact")
-    document = load_document(binding.path, kind="approval")
-    normalized = validate_approval(document, inspection, distribution, skill_name)
+    _preflight(inspection, "review record")
+    binding = _external(root, artifact, "review artifact")
+    document = load_document(binding.path, kind="release-review")
+    normalized = validate_review(document, inspection, distribution)
     fields = {key: value for key, value in normalized.items() if key not in {"schema", "kind"}}
-    output = render("approval", fields)
-    digest, changes = _record(root, inspection, skill_name, "approvals", output)
+    output = render("release-review", fields)
+    _screen(inspection, output, "release review")
+    digest = _hash(output)
+    destination = root / ".remek/reviews" / f"{digest}.json"
+    _bound(destination, len(output), record_kind="release-review")
+    changes = list(_owned_write(root, destination, output, "record immutable release review"))
+    dist = inspection.distribution(distribution)
+    if dist.active_review != digest:
+        changes.append(
+            _review_pointer(
+                root,
+                dist,
+                digest,
+                "activate exact distribution review",
+            )
+        )
+    _bound_changes(root, changes)
     return Plan(
-        "approve-record",
+        "review-record",
         root,
-        changes,
-        {"distribution": distribution, "skill": skill_name, "approval": str(binding.path)},
-        bindings={"approvalDigest": digest},
+        tuple(changes),
+        {"distribution": distribution, "review": str(binding.path)},
+        bindings={"reviewId": digest, "source": _source_bindings(inspection)},
         sources=(binding,),
+        data={
+            "reviewId": digest,
+            "contextDigest": normalized["contextDigest"],
+            "distribution": distribution,
+            "priorActiveReview": dist.active_review,
+        },
     )
-
-
-def repair_plan(root: Path, inspection: Inspection | None = None) -> Plan:
-    root = checked(root)
-    current = inspection if inspection is not None else inspect(root)
-    return Plan("repair", root, repair_changes(current))
 
 
 def update_plan(root: Path, bundle: Path) -> Plan:
     root = checked(root)
+    source = snapshot(checked(bundle), reject_bytecode=True)
     inspection = inspect(root)
     allowed = {"repo.toolchain", "repo.shim"}
-    for finding in check(inspection):
-        if finding.severity == "error" and finding.code not in allowed:
-            raise Error("update.preflight", f"update preflight failed: {finding.code}")
     destination = root / ".remek" / "toolchain"
     if not real_directory(destination):
         raise Error("update.layout", "update requires .remek/toolchain")
-    source = snapshot(checked(bundle), reject_bytecode=True)
+    if any(item.code == "toolchain.identity" for item in inspection.issues):
+        current = snapshot(destination, reject_bytecode=True)
+        if {item.path for item in current.files} - {item.path for item in source.files} or {
+            item.path for item in current.directories
+        } - {item.path for item in source.directories}:
+            raise Error("update.ownership", "damaged toolchain contains unknown paths; preserved")
+        allowed.add("toolchain.identity")
+    for finding in check(inspection):
+        if finding.severity == "error" and finding.code not in allowed:
+            raise Error("update.preflight", f"update preflight failed: {finding.code}")
     changes = list(
         _one(tree_change(root, destination, source, "replace the embedded toolchain atomically"))
     )
@@ -1314,6 +725,10 @@ def update_plan(root: Path, bundle: Path) -> Plan:
         root,
         tuple(changes),
         bindings={"sourceToolchain": f"tree:{source.digest}"},
+        data={
+            "oldBundleIdentity": fingerprint(destination),
+            "newBundleIdentity": f"tree:{source.digest}",
+        },
     )
 
 
@@ -1321,13 +736,14 @@ def _capture_process(
     process: subprocess.Popen[bytes], arguments: list[str], output_limit: int
 ) -> tuple[int, dict[str, bytearray]]:
     assert process.stdout is not None and process.stderr is not None
-    selector = selectors.DefaultSelector()
+    selector: selectors.BaseSelector | None = None
     buffers = {"stdout": bytearray(), "stderr": bytearray()}
-    for label, stream in (("stdout", process.stdout), ("stderr", process.stderr)):
-        os.set_blocking(stream.fileno(), False)
-        selector.register(stream, selectors.EVENT_READ, label)
-    deadline = time.monotonic() + _PROCESS_TIMEOUT_SECONDS
     try:
+        selector = selectors.DefaultSelector()
+        for label, stream in (("stdout", process.stdout), ("stderr", process.stderr)):
+            os.set_blocking(stream.fileno(), False)
+            selector.register(stream, selectors.EVENT_READ, label)
+        deadline = time.monotonic() + _PROCESS_TIMEOUT_SECONDS
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -1344,18 +760,19 @@ def _capture_process(
                 if sum(len(value) for value in buffers.values()) > output_limit:
                     raise Error("external.output", f"{arguments[0]} output exceeds its bound")
         returncode = process.wait(timeout=max(0.001, deadline - time.monotonic()))
-    except Error:
-        process.kill()
-        process.wait()
+    except BaseException as exc:
+        with suppress(OSError):
+            process.kill()
+        with suppress(OSError, subprocess.SubprocessError):
+            process.wait(timeout=_PROCESS_TIMEOUT_SECONDS)
+        if isinstance(exc, (OSError, subprocess.SubprocessError)):
+            raise Error("external.unavailable", f"{arguments[0]} query failed") from None
         raise
-    except (OSError, subprocess.SubprocessError):
-        process.kill()
-        process.wait()
-        raise Error("external.unavailable", f"{arguments[0]} query failed") from None
     finally:
-        selector.close()
-        process.stdout.close()
-        process.stderr.close()
+        for resource in (selector, process.stdout, process.stderr):
+            if resource is not None:
+                with suppress(OSError):
+                    resource.close()
     return returncode, buffers
 
 
@@ -2118,6 +1535,7 @@ def _release(  # noqa: PLR0913
                 "distributionDigest": distribution_digest,
                 "candidates": candidates,
                 "payloadDigest": payload.digest,
+                "reviewDigest": distribution.active_review,
             },
         )
     )
@@ -2131,6 +1549,7 @@ def _release(  # noqa: PLR0913
                 "distribution": distribution.distribution_id,
                 "releaseSetDigest": release_set,
                 "payloadDigest": payload.digest,
+                "reviewDigest": distribution.active_review,
             },
         )
     )
@@ -2144,6 +1563,7 @@ def _release(  # noqa: PLR0913
         "releaseId": release_id,
         "releaseSetDigest": release_set,
         "payloadDigest": payload.digest,
+        "reviewDigest": distribution.active_review,
         "candidates": candidates,
         "directories": directories,
         "files": files,
@@ -2152,7 +1572,7 @@ def _release(  # noqa: PLR0913
         "remoteBinding": remote_binding,
         "expectedCommitPaths": cast(list[JSONValue], expected_paths),
     }
-    document: JSONObject = {"schema": "remek.1", "kind": "release-manifest", **fields}
+    document: JSONObject = {"schema": SCHEMA, "kind": "release-manifest", **fields}
     nodes = value_count(document)
     if nodes > MAX_ITEMS:
         raise Error(
@@ -2242,7 +1662,7 @@ def _mirror_context(  # noqa: PLR0913
         raise Error(
             "release.branch",
             f"mirror branch is {state.get('branch')}; expected {expected_branch}; repository "
-            f"unchanged; repair: switch the mirror to {expected_branch} or reapprove a new target",
+            f"unchanged; repair: switch the mirror to {expected_branch} or review a new target",
         )
     history = _release_history(selected, forbidden_roots)
     config = cast(Config, inspection.config)
@@ -2268,7 +1688,7 @@ def release_plan(  # noqa: PLR0915
 ) -> Plan:
     root = checked(root)
     if (mirror is None) == (staging is None):
-        raise Error("release.destination", "choose exactly one of --mirror or --staging-only")
+        raise Error("release.destination", "choose exactly one of --mirror or --staging")
     destination: Path | None = None
     if staging is not None:
         selected_staging = staging.expanduser().absolute()
@@ -2324,7 +1744,13 @@ def release_plan(  # noqa: PLR0915
             (change,),
             inputs,
             bindings={"sourceGit": source, "releaseId": manifest["releaseId"]},
-            data={"releaseId": manifest["releaseId"], "verification": "not-performed"},
+            data={
+                "releaseId": manifest["releaseId"],
+                "reviewDigest": manifest["reviewDigest"],
+                "mode": "staging",
+                "targetVerified": False,
+                "publicationPerformed": False,
+            },
         )
     selected = selected_mirror
     if paths_related(root, selected):
@@ -2379,7 +1805,13 @@ def release_plan(  # noqa: PLR0915
                 "remote": remote,
                 "target": target,
             },
-            data={"releaseId": manifest["releaseId"]},
+            data={
+                "releaseId": manifest["releaseId"],
+                "reviewDigest": manifest["reviewDigest"],
+                "mode": "managed",
+                "targetVerified": True,
+                "publicationPerformed": False,
+            },
         )
     skills_path = selected / "skills"
     payload_change = (
@@ -2414,7 +1846,14 @@ def release_plan(  # noqa: PLR0915
             "releaseId": manifest["releaseId"],
             "adoptedIdentity": payload_change.expected if old is None and adopt else None,
         },
-        data={"releaseId": manifest["releaseId"], "mirror": str(selected)},
+        data={
+            "releaseId": manifest["releaseId"],
+            "reviewDigest": manifest["reviewDigest"],
+            "mirror": str(selected),
+            "mode": "managed",
+            "targetVerified": True,
+            "publicationPerformed": False,
+        },
     )
 
 
@@ -2469,7 +1908,7 @@ def release_verify(root: Path, dist: str, mirror: Path) -> dict[str, object]:
     )
     manifest = _load_release_manifest(selected / _RELEASE_FILE)
     if manifest.get("targetVerificationDigest") == "not-performed":
-        raise Error("release.staging", "staging-only output is never push-ready")
+        raise Error("release.staging", "staging output lacks managed target verification")
     if manifest.get("distributionIdentity") != _hash(dist.encode()):
         raise Error("release.distribution", "manifest distribution differs")
     if manifest.get("audience") != distribution.audience:
@@ -2540,7 +1979,12 @@ def release_verify(root: Path, dist: str, mirror: Path) -> dict[str, object]:
     if read(selected / _RELEASE_FILE).data != manifest_data:
         raise Error("release.manifest", "release manifest differs from bound identities")
     return {
-        "verified": True,
+        "artifactVerified": True,
+        "sourceReadinessVerified": True,
+        "targetVerified": True,
+        "commitLineageVerified": True,
+        "publicationPerformed": False,
+        "reviewDigest": manifest.get("reviewDigest"),
         "releaseId": manifest.get("releaseId"),
         "sourceCommit": manifest.get("sourceCommit"),
         "mirrorCommit": mirror_state.get("head"),

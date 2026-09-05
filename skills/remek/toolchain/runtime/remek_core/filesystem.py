@@ -619,22 +619,6 @@ class OpenedBoundary:
     def __exit__(self, _kind: object, _value: object, _traceback: object) -> None:
         self.close()
 
-    def open_directory(self, relative: str = "") -> int:
-        descriptor = os.dup(self.descriptor)
-        try:
-            for part in relative.split("/") if relative else ():
-                child = os.open(
-                    part,
-                    _DIRECTORY_FLAGS,
-                    dir_fd=descriptor,
-                )
-                os.close(descriptor)
-                descriptor = child
-            return descriptor
-        except BaseException:
-            os.close(descriptor)
-            raise
-
     def open_parent(self, relative: str) -> tuple[int, str]:
         portable_path(relative)
         parts = relative.split("/")
@@ -808,62 +792,135 @@ def remove_at(parent: int, name: str, expected: str) -> None:
         os.unlink(name, dir_fd=parent)
 
 
+def _artifact_failure(
+    boundary: OpenedBoundary,
+    stage: str,
+    destination: Path,
+    identity: tuple[int, int] | None,
+    pending: BaseException | None,
+) -> Error | None:
+    if isinstance(pending, Error) and pending.changed:
+        return pending
+    residue: list[dict[str, str]] = []
+    changed_paths: list[str] = []
+    unknown = False
+    stage_remains = False
+    for name in (stage, destination.name):
+        location = str(boundary.root / name)
+        try:
+            observed = _stat_at(boundary.descriptor, name)
+        except BaseException:
+            unknown = True
+            residue.append({"path": location, "identity": "unknown", "reason": "cannot inspect"})
+            continue
+        if observed is None:
+            continue
+        owned = (observed.st_dev, observed.st_ino) == identity
+        if name == stage:
+            stage_remains = True
+            unknown |= not owned
+        if owned:
+            changed_paths.append(location)
+        residue.append(
+            {
+                "path": location,
+                "identity": f"inode:{observed.st_dev}:{observed.st_ino}:"
+                f"mode={stat.S_IMODE(observed.st_mode):o}:links={observed.st_nlink}",
+                "reason": "owned artifact" if owned else "unproven object; preserved",
+            }
+        )
+    if unknown or stage_remains or (changed_paths and pending is not None):
+        return Error(
+            "artifact.residue",
+            f"operator artifact save failed at {destination}; inspect preserved state",
+            outcome="unknown" if unknown else "residue",
+            changed_paths=tuple(changed_paths),
+            residue=tuple(residue),
+        )
+    return None
+
+
+def _install_artifact(
+    boundary: OpenedBoundary, stage: str, destination: Path, identity: tuple[int, int]
+) -> None:
+    try:
+        os.link(
+            stage,
+            destination.name,
+            src_dir_fd=boundary.descriptor,
+            dst_dir_fd=boundary.descriptor,
+            follow_symlinks=False,
+        )
+    except OSError as exc:
+        installed = _stat_at(boundary.descriptor, destination.name)
+        if installed is None or (installed.st_dev, installed.st_ino) != identity:
+            code = "artifact.exists" if isinstance(exc, FileExistsError) else "artifact.install"
+            message = (
+                f"artifact already exists: {destination}; not replaced; choose new output"
+                if code == "artifact.exists"
+                else f"cannot install operator artifact {destination}: {exc}"
+            )
+            raise Error(code, message) from None
+
+
 def write_artifact(path: Path, data: bytes) -> Path:
     selected = path.expanduser().absolute()
     parent_path = checked_root(selected.parent)
     portable_path(selected.name)
     destination = parent_path / selected.name
-    with OpenedBoundary(parent_path) as boundary:
-        token = secrets.token_hex(8)
-        suffix = hashlib.sha256(os.fsencode(selected.name)).hexdigest()[:12]
-        stage = f".remek-artifact-{token}-{suffix}"
-        identity: tuple[int, int] | None = None
+    token = secrets.token_hex(8)
+    suffix = hashlib.sha256(os.fsencode(selected.name)).hexdigest()[:12]
+    stage = f".remek-artifact-{token}-{suffix}"
+    identity: tuple[int, int] | None = None
+    failed = False
+    boundary = OpenedBoundary(parent_path)
+    try:
         try:
             identity = write_file_at(boundary.descriptor, stage, data, 0o600)
-            try:
-                os.link(
-                    stage,
-                    selected.name,
-                    src_dir_fd=boundary.descriptor,
-                    dst_dir_fd=boundary.descriptor,
-                    follow_symlinks=False,
-                )
-            except OSError as exc:
-                installed = _stat_at(boundary.descriptor, selected.name)
-                if installed is None or (installed.st_dev, installed.st_ino) != identity:
-                    code = (
-                        "artifact.exists"
-                        if isinstance(exc, FileExistsError)
-                        else "artifact.install"
-                    )
-                    message = (
-                        f"artifact already exists: {destination}; not replaced; choose new output"
-                        if code == "artifact.exists"
-                        else f"cannot install operator artifact {destination}: {exc}"
-                    )
-                    raise Error(code, message) from None
+            _install_artifact(boundary, stage, destination, identity)
         finally:
             try:
                 info = _stat_at(boundary.descriptor, stage)
-                if (
-                    info is not None
-                    and identity is not None
-                    and (
-                        info.st_dev,
-                        info.st_ino,
-                    )
-                    == identity
-                ):
+                if info is not None and (info.st_dev, info.st_ino) == identity:
                     os.unlink(stage, dir_fd=boundary.descriptor)
                 elif info is not None:
                     raise OSError("stage identity is unknown or changed")
-            except OSError as exc:
+            except BaseException as exc:
+                # Only an ordinary after-effect cleanup error may become success.
+                pending = None if isinstance(exc, (OSError, Error)) else exc
+                if error := _artifact_failure(boundary, stage, destination, identity, pending):
+                    raise error from None
+                if pending is not None:
+                    raise
+        return destination
+    except BaseException as exc:
+        failed = True
+        if error := _artifact_failure(boundary, stage, destination, identity, exc):
+            raise error from None
+        if isinstance(exc, OSError):
+            raise Error("artifact.write", f"cannot write operator artifact: {exc}") from None
+        raise
+    finally:
+        # Descriptor disposal cannot erase an already classified artifact outcome.
+        try:
+            boundary.close()
+        except BaseException:
+            if not failed:
                 raise Error(
-                    "artifact.residue",
-                    f"operator artifact stage remains beside {destination}: {exc}",
-                    changed=True,
+                    "artifact.finalize",
+                    f"descriptor finalization failed after saving operator artifact {destination}",
+                    outcome="applied",
+                    changed_paths=(str(destination),),
+                    residue=(
+                        {
+                            "path": str(destination),
+                            "identity": f"inode:{identity[0]}:{identity[1]}"
+                            if identity
+                            else "unknown",
+                            "reason": "installed artifact; descriptor finalization failed",
+                        },
+                    ),
                 ) from None
-    return destination
 
 
 def read_artifact(path: Path) -> RegularFile:

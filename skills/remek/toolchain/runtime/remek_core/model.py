@@ -7,6 +7,7 @@ from typing import Literal, cast
 
 Severity = Literal["info", "warning", "error"]
 Status = Literal["ok", "planned", "issues", "refused", "failed"]
+MutationOutcome = Literal["unchanged", "applied", "restored", "residue", "unknown"]
 _SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 
 
@@ -19,13 +20,16 @@ def valid_skill_name(value: object) -> bool:
 
 
 class RemekError(Exception):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         code: str,
         message: str | None = None,
         *,
         changed: bool = False,
         exit_code: int | None = None,
+        outcome: MutationOutcome | None = None,
+        changed_paths: tuple[str, ...] = (),
+        residue: tuple[dict[str, str], ...] = (),
     ) -> None:
         if message is None:
             message = code
@@ -33,8 +37,11 @@ class RemekError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
-        self.changed = changed
-        self.exit_code = exit_code if exit_code is not None else (3 if changed else 2)
+        self.outcome: MutationOutcome = outcome or ("unknown" if changed else "unchanged")
+        self.changed = self.outcome in {"applied", "residue", "unknown"}
+        self.changed_paths = changed_paths
+        self.residue = residue
+        self.exit_code = 3 if self.changed else exit_code if exit_code is not None else 2
 
 
 Error = RemekError
@@ -78,6 +85,10 @@ class Result:
 
     @property
     def exit_code(self) -> int:
+        if self.changed and (
+            self.status in {"refused", "failed"} or self.exit_override not in {None, 0}
+        ):
+            return 3
         if self.exit_override is not None:
             return self.exit_override
         if self.status == "refused":

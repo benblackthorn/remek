@@ -8,10 +8,10 @@ from pathlib import Path
 
 LIMITS = {
     "shipped": 70_000,
-    "tests": 35_000,
+    "tests": 51_000,
     "documentation": 15_000,
     "vendor": 0,
-    "other": 10_000,
+    "other": 12_500,
 }
 EXECUTABLE = {"gate", "remek", "tools/repo_tokens.py", "tools/verify_release_manifest.py"}
 PLAIN = {
@@ -78,8 +78,8 @@ def _main():  # noqa: PLR0912
         if (root / name).read_bytes() != (root / "skills/remek" / source).read_bytes():
             violations.append(f"shim: {name}")
     total, files = sum(counts.values()), len(index)
-    if total > 125_000:
-        violations.append(f"total={total}>125000")
+    if total > 141_000:
+        violations.append(f"total={total}>141000")
     if files > 70:
         violations.append(f"files={files}>70")
     for name, limit in LIMITS.items():

@@ -76,7 +76,7 @@ def _manifest(root: Path) -> bytes:
                 else:
                     raise BAD
     value = {
-        "schema": "remek.1",
+        "schema": "remek.2",
         "kind": "toolchain-manifest",
         "rootMode": 0o755,
         "directories": directories,
