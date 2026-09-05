@@ -1,14 +1,18 @@
+import json
 import os
 
 import pytest
+import remek_core.app as app_module
 import remek_core.filesystem as filesystem_module
 import remek_core.transaction as transaction_module
+from helpers import TOOLCHAIN
 from remek_core.filesystem import (
     TreeFile,
     checked_path,
     checked_root,
     fingerprint,
     portable_path,
+    read_artifact,
     read_regular,
     snapshot_tree,
     tree_from_entries,
@@ -420,3 +424,145 @@ def test_artifact_races(tmp_path, monkeypatch):
     monkeypatch.setattr(filesystem_module.os, "link", effect_then_error)
     assert write_artifact(effected, b"plan") == effected
     assert effected.read_bytes() == b"plan"
+    unlink = filesystem_module.os.unlink
+
+    def unlink_then_error(name, **options):
+        unlink(name, **options)
+        raise OSError("unlink took effect")
+
+    monkeypatch.setattr(filesystem_module.os, "unlink", unlink_then_error)
+    cleaned = tmp_path / "cleaned.json"
+    assert write_artifact(cleaned, b"plan") == cleaned
+    assert cleaned.stat().st_nlink == 1 and not list(tmp_path.glob(".remek-artifact-*"))
+
+
+def test_artifact_cleanup_preserves_foreign_destination(tmp_path, monkeypatch):
+    destination = tmp_path / "plan.json"
+    destination.write_bytes(b"foreign winner")
+
+    def refuse_unlink(*_args, **_options):
+        raise OSError("synthetic cleanup failure")
+
+    monkeypatch.setattr(filesystem_module.os, "unlink", refuse_unlink)
+    with pytest.raises(RemekError) as captured:
+        write_artifact(destination, b"plan")
+    stage = next(tmp_path.glob(".remek-artifact-*"))
+    assert destination.read_bytes() == b"foreign winner" and stage.read_bytes() == b"plan"
+    assert captured.value.changed_paths == (str(stage),)
+    assert {item["path"] for item in captured.value.residue} == {str(stage), str(destination)}
+
+
+def test_artifact_cleanup_names_residue_through_output_fallback(tmp_path, monkeypatch, capsys):
+    artifacts = tmp_path.parent / f"{tmp_path.name}-artifacts"
+    artifacts.mkdir()
+    unlink = filesystem_module.os.unlink
+
+    def fail_stage(name, **options):
+        if str(name).startswith(".remek-artifact-"):
+            raise OSError("synthetic unlink failure")
+        return unlink(name, **options)
+
+    def fail_renderer(*_args, **_options):
+        raise RemekError("synthetic renderer failure")
+
+    monkeypatch.setattr(filesystem_module.os, "unlink", fail_stage)
+    for fallback in (False, True):
+        if fallback:
+            monkeypatch.setattr(app_module, "_render", fail_renderer)
+        target, plan = tmp_path / f"source-{fallback}", artifacts / f"plan-{fallback}.json"
+        assert (
+            app_module.main(
+                ["--json", "init", str(target), "--output", str(plan)], bundle=TOOLCHAIN
+            )
+            == 3
+        )
+        result = json.loads(capsys.readouterr().out)
+        residue = {item["path"]: item for item in result["data"]["residue"]}
+        stage = next(path for path in artifacts.glob(".remek-artifact-*") if path.samefile(plan))
+        assert set(residue) == {str(stage), str(plan)}
+        assert set(result["data"]["changedPaths"]) == set(residue)
+        assert result["changed"] is True and result["data"]["outcome"] == "residue"
+        assert not target.exists() and plan.stat().st_nlink == stage.stat().st_nlink == 2
+        assert all("links=2" in item["identity"] for item in residue.values())
+        with pytest.raises(RemekError, match="one hard link"):
+            read_artifact(plan)
+        unlink(stage)
+
+
+@pytest.mark.parametrize(
+    "edge", ["before-link", "after-link", "before-unlink", "after-unlink", "close"]
+)
+def test_artifact_cancellation_reports_actual_state(tmp_path, monkeypatch, capsys, edge):
+    artifacts = tmp_path.parent / f"{tmp_path.name}-artifacts"
+    artifacts.mkdir()
+    artifacts = artifacts.resolve()
+    target, plan = tmp_path / "source", artifacts / "plan.json"
+    link, unlink, close = os.link, os.unlink, filesystem_module.OpenedBoundary.close
+
+    def interrupted_link(source, destination, **options):
+        if edge == "before-link":
+            raise KeyboardInterrupt
+        link(source, destination, **options)
+        if edge == "after-link":
+            raise KeyboardInterrupt
+
+    def interrupted_unlink(name, **options):
+        if str(name).startswith(".remek-artifact-") and edge == "before-unlink":
+            raise KeyboardInterrupt
+        unlink(name, **options)
+        if str(name).startswith(".remek-artifact-") and edge == "after-unlink":
+            raise KeyboardInterrupt
+
+    def interrupted_close(boundary):
+        close(boundary)
+        if edge == "close" and boundary.root == artifacts:
+            raise KeyboardInterrupt
+
+    def fail_renderer(*_args, **_options):
+        raise RemekError("synthetic renderer failure")
+
+    monkeypatch.setattr(filesystem_module.os, "link", interrupted_link)
+    monkeypatch.setattr(filesystem_module.os, "unlink", interrupted_unlink)
+    monkeypatch.setattr(filesystem_module.OpenedBoundary, "close", interrupted_close)
+    if edge == "before-unlink":
+        monkeypatch.setattr(app_module, "_render", fail_renderer)
+    code = app_module.main(["--json", "init", str(target), "--output", str(plan)], bundle=TOOLCHAIN)
+    result = json.loads(capsys.readouterr().out)
+    assert not target.exists()
+    if edge == "before-link":
+        assert code == 130 and result["changed"] is False
+        assert result["data"]["outcome"] == "unchanged"
+        assert not result["data"]["changedPaths"] and not result["data"]["residue"]
+        assert not list(artifacts.iterdir())
+        return
+    assert code == 3 and result["changed"] is True
+    expected = {str(plan)}
+    stages = list(artifacts.glob(".remek-artifact-*"))
+    if edge == "before-unlink":
+        assert len(stages) == 1 and stages[0].samefile(plan)
+        assert plan.stat().st_nlink == stages[0].stat().st_nlink == 2
+        expected.add(str(stages[0]))
+        with pytest.raises(RemekError, match="one hard link"):
+            read_artifact(plan)
+    else:
+        assert not stages and read_artifact(plan).data
+    assert set(result["data"]["changedPaths"]) == expected
+    assert {item["path"] for item in result["data"]["residue"]} == expected
+    assert result["data"]["outcome"] == ("applied" if edge == "close" else "residue")
+
+
+def test_artifact_cancelled_before_identity_return_preserves_uncertainty(tmp_path, monkeypatch):
+    write_file = filesystem_module.write_file_at
+
+    def interrupted_write(*args):
+        write_file(*args)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(filesystem_module, "write_file_at", interrupted_write)
+    with pytest.raises(RemekError) as captured:
+        write_artifact(tmp_path / "plan.json", b"plan")
+    stage = next(tmp_path.glob(".remek-artifact-*"))
+    assert stage.read_bytes() == b"plan" and stage.stat().st_nlink == 1
+    assert captured.value.outcome == "unknown" and captured.value.exit_code == 3
+    assert not captured.value.changed_paths
+    assert [item["path"] for item in captured.value.residue] == [str(stage)]

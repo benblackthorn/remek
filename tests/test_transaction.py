@@ -12,6 +12,13 @@ from remek_core.transaction import (
 )
 
 
+@pytest.fixture
+def replacement(root):
+    target = root / "file"
+    target.write_bytes(b"before")
+    return target, write_change(root, target, b"after", "replace")
+
+
 def test_every_object_is_staged_before_first_public_replace(root, monkeypatch):
     changes = [
         write_change(root, root / "one", b"one", "one"),
@@ -30,7 +37,8 @@ def test_every_object_is_staged_before_first_public_replace(root, monkeypatch):
 
     monkeypatch.setattr(transaction_module.os, "replace", replace)
     outcome = apply_changes(changes)
-    assert outcome == ApplyOutcome(True)
+    assert outcome == ApplyOutcome(True, (str(root / "one"), str(root / "two")))
+    assert outcome.outcome == "applied"
 
 
 def test_overlapping_destinations_refuse(root, tmp_path):
@@ -73,10 +81,8 @@ def test_no_unplanned_parent(root):
 
 
 @pytest.mark.parametrize("fault", ["backup", "install"])
-def test_effect_then_error_is_classified_from_actual_state(root, monkeypatch, fault):
-    target = root / "file"
-    target.write_bytes(b"before")
-    change = write_change(root, target, b"after", "replace")
+def test_effect_then_error_is_classified_from_actual_state(root, monkeypatch, fault, replacement):
+    target, change = replacement
     original = transaction_module.os.replace
     injected = False
 
@@ -92,7 +98,10 @@ def test_effect_then_error_is_classified_from_actual_state(root, monkeypatch, fa
             raise OSError(f"{fault} returned an error after taking effect")
 
     monkeypatch.setattr(transaction_module.os, "replace", replace)
-    assert apply_changes([change]).changed is True
+    outcome = apply_changes([change])
+    assert outcome.changed is True
+    assert outcome.outcome == "applied"
+    assert outcome.changed_paths == (str(target),)
     assert target.read_bytes() == b"after"
     assert not list(root.glob(".remek-*-*"))
 
@@ -111,16 +120,19 @@ def test_third_commit_failure_restores_every_destination(root, monkeypatch):
         original(source, destination, **options)
 
     monkeypatch.setattr(transaction_module.os, "replace", replace)
-    with pytest.raises(RemekError, match="prior state was restored"):
+    with pytest.raises(RemekError, match="prior state was restored") as captured:
         apply_changes(changes)
+    assert captured.value.outcome == "restored"
+    assert captured.value.changed is False
+    assert captured.value.exit_code == 2
+    assert captured.value.changed_paths == ()
+    assert captured.value.residue == ()
     assert not any((root / name).exists() for name in ("a", "b", "c"))
     assert not list(root.glob(".remek-*-*"))
 
 
-def test_rollback_interruption_after_effect_still_restores(root, monkeypatch):
-    target = root / "file"
-    target.write_bytes(b"before")
-    change = write_change(root, target, b"after", "replace")
+def test_rollback_interruption_after_effect_still_restores(root, monkeypatch, replacement):
+    target, change = replacement
     original = transaction_module.os.replace
     interrupted = False
 
@@ -141,10 +153,8 @@ def test_rollback_interruption_after_effect_still_restores(root, monkeypatch):
     assert not list(root.glob(".remek-*-*"))
 
 
-def test_compound_rollback_failure_preserves_named_residue(root, monkeypatch):
-    target = root / "file"
-    target.write_bytes(b"before")
-    change = write_change(root, target, b"after", "replace")
+def test_compound_rollback_failure_preserves_named_residue(root, monkeypatch, replacement):
+    target, change = replacement
     original = transaction_module.os.replace
 
     def replace(source, destination, **options):
@@ -159,8 +169,110 @@ def test_compound_rollback_failure_preserves_named_residue(root, monkeypatch):
     with pytest.raises(RemekError, match="exact residue") as captured:
         apply_changes([change], verify=fail)
     assert captured.value.changed is True
+    assert captured.value.outcome == "residue"
+    assert captured.value.exit_code == 3
+    assert captured.value.changed_paths == (str(target),)
     assert target.read_bytes() == b"after"
-    assert list(root.glob(".remek-backup-*"))
+    backups = list(root.glob(".remek-backup-*"))
+    assert backups
+    assert {item["path"] for item in captured.value.residue} == {str(target), str(backups[0])}
+
+
+def test_empty_transaction_has_explicit_unchanged_outcome():
+    outcome = apply_changes([])
+    assert outcome.outcome == "unchanged"
+    assert outcome.changed is False
+    assert outcome.changed_paths == ()
+
+
+def test_interrupted_commit_reports_verified_restoration(replacement):
+    target, change = replacement
+
+    def interrupt():
+        raise KeyboardInterrupt
+
+    with pytest.raises(RemekError, match="prior state was restored") as captured:
+        apply_changes([change], verify=interrupt)
+    assert captured.value.outcome == "restored"
+    assert captured.value.changed is False
+    assert captured.value.exit_code == 130
+    assert captured.value.residue == ()
+    assert target.read_bytes() == b"before"
+
+
+def test_cleanup_probe_failure_preserves_known_change_and_names_unknown_path(
+    root, monkeypatch, replacement
+):
+    target, change = replacement
+    original = transaction_module.probe
+    committed = False
+
+    def verified():
+        nonlocal committed
+        committed = True
+
+    def unreadable(parent, name):
+        if committed and "remek-backup" in name:
+            raise RemekError("forced unreadable cleanup")
+        return original(parent, name)
+
+    monkeypatch.setattr(transaction_module, "probe", unreadable)
+    with pytest.raises(RemekError, match="cleanup residue") as captured:
+        apply_changes([change], verify=verified)
+    failure = captured.value
+    assert failure.outcome == "unknown"
+    assert failure.changed is True
+    assert failure.exit_code == 3
+    assert failure.changed_paths == (str(target),)
+    assert failure.residue[0]["identity"] == "unknown"
+    assert failure.residue[0]["path"] == str(next(root.glob(".remek-backup-*")))
+    assert target.read_bytes() == b"after"
+
+
+def test_cleanup_error_after_effect_uses_observed_absence(root, monkeypatch, replacement):
+    target, change = replacement
+    original = transaction_module.remove_at
+
+    def remove_then_interrupt(parent, name, expected):
+        original(parent, name, expected)
+        if "remek-backup" in name:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(transaction_module, "remove_at", remove_then_interrupt)
+    outcome = apply_changes([change])
+    assert outcome.outcome == "applied"
+    assert outcome.changed_paths == (str(target),)
+    assert target.read_bytes() == b"after"
+    assert not list(root.glob(".remek-*-*"))
+
+
+def test_descriptor_interruption_preserves_applied_and_restored_outcomes(monkeypatch, replacement):
+    target, change = replacement
+    original = transaction_module._close
+
+    def interrupted_close(states, boundaries):
+        original(states, boundaries)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(transaction_module, "_close", interrupted_close)
+    with pytest.raises(RemekError) as captured:
+        apply_changes([change])
+    error = captured.value
+    assert error.code == "transaction.finalize" and error.outcome == "applied"
+    assert error.changed and error.exit_code == 3 and error.changed_paths == (str(target),)
+    assert target.read_bytes() == b"after"
+
+    target.write_bytes(b"before")
+
+    def refuse():
+        raise RemekError("fixture.postcondition", "semantic check failed")
+
+    with pytest.raises(RemekError) as captured:
+        apply_changes([change], verify=refuse)
+    error = captured.value
+    assert error.code == "fixture.postcondition" and error.outcome == "restored"
+    assert not error.changed and error.exit_code == 2
+    assert target.read_bytes() == b"before"
 
 
 @pytest.mark.skipif(os.name != "posix", reason="opened-boundary contract is POSIX only")

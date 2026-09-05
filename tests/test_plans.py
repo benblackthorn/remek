@@ -1,8 +1,10 @@
 import json
+import os
 import shutil
 
 import pytest
-from helpers import TOOLCHAIN
+from conftest import trusted_external_path
+from helpers import TOOLCHAIN, git_commit, ready_source, review_document, write_input
 from remek_core.contract import render_document
 from remek_core.filesystem import TreeDirectory, tree_from_entries
 from remek_core.model import RemekError
@@ -18,7 +20,7 @@ from remek_core.plans import (
     verify_operation_plan,
 )
 from remek_core.transaction import delete_change, tree_change, write_change
-from remek_core.workflows import init_plan
+from remek_core.workflows import _size, eval_record_plan, init_plan, review_record_plan
 
 
 def save(path, plan):
@@ -169,3 +171,69 @@ def test_loaded_bundle_change_stales_plan(tmp_path):
     (copied / "assets/gate").write_text("different\n")
     with pytest.raises(RemekError, match="toolchain differs"):
         verify_operation_plan(loaded, plan, copied)
+
+
+def test_record_plans_bind_raw_authored_bytes_and_external_observations(tmp_path):
+
+    root = ready_source(tmp_path)
+    artifact = tmp_path / "behavior-evidence.json"
+    report = json.loads(artifact.read_text())
+    report["trials"][0]["observation"] = "Different actual observation."
+    artifact.write_text(json.dumps(report))
+    plan = eval_record_plan(root, "deploy-safely", artifact)
+    loaded = load_operation_plan(save(tmp_path / "record-plan.json", plan))
+    config = root / "remek.json"
+    before = config.read_bytes()
+    config.write_text(json.dumps(json.loads(before)))
+    with pytest.raises(RemekError, match="plan differs"):
+        verify_operation_plan(loaded, reconstruct_plan(loaded, TOOLCHAIN), TOOLCHAIN)
+    config.write_bytes(before)
+    artifact.write_text(artifact.read_text() + "\n")
+    with pytest.raises(RemekError, match="plan differs"):
+        verify_operation_plan(loaded, reconstruct_plan(loaded, TOOLCHAIN), TOOLCHAIN)
+
+
+def test_review_plan_bounds_include_active_pointer_bytes(tmp_path, monkeypatch):
+
+    root = ready_source(tmp_path)
+    artifact = write_input(tmp_path / "new-review.json", review_document(root, reviewer="another"))
+    dist = root / ".remek/distributions/org-private.json"
+    definition = json.loads(dist.read_text())
+    definition["activeReview"] = None
+    dist.write_text(json.dumps(definition))
+    current = sum(
+        _size(root / path)
+        for path in (
+            ".remek/disclosure-policy.json",
+            ".remek/distributions",
+            ".remek/skills",
+            ".remek/reviews",
+        )
+    )
+    monkeypatch.setattr("remek_core.workflows.MAX_REPO_GOV", current + len(artifact.read_bytes()))
+    with pytest.raises(RemekError, match="governance exceeds"):
+        review_record_plan(root, "org-private", artifact)
+    assert json.loads(dist.read_text())["activeReview"] is None
+
+
+def test_git_fixture_isolation_ignores_signing_and_repository_redirects(tmp_path, monkeypatch):
+    config = tmp_path / "inherited.gitconfig"
+    config.write_text("[commit]\n gpgSign = true\n[gpg]\n program = /nonexistent-signer\n")
+    for key, value in {
+        "GIT_CONFIG_GLOBAL": str(config),
+        "GIT_DIR": str(tmp_path / "wrong-git-dir"),
+        "GIT_WORK_TREE": str(tmp_path / "wrong-work-tree"),
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "commit.gpgSign",
+        "GIT_CONFIG_VALUE_0": "true",
+    }.items():
+        monkeypatch.setenv(key, value)
+    trusted_external_path.__wrapped__(monkeypatch)
+    assert {key for key in os.environ if key.startswith("GIT_")} == {
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_NOSYSTEM",
+    }
+    root = tmp_path / "git-source"
+    root.mkdir()
+    (root / "file").write_text("fixture")
+    assert len(git_commit(root)) == 40

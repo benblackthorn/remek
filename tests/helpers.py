@@ -1,28 +1,24 @@
+import copy
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 from remek_core.contract import load_document, render_document
-from remek_core.frontmatter import render_skill
-from remek_core.repository import approval_template, evaluation_plan, inspect_repository
+from remek_core.repository import evaluation_plan, inspect_repository
+from remek_core.review import review_template
 from remek_core.transaction import apply_changes
-from remek_core.workflows import (
-    accept_plan,
-    approve_record_plan,
-    distribution_accept_plan,
-    eval_record_plan,
-    init_plan,
-    scaffold_workspace,
-)
+from remek_core.workflows import eval_record_plan, init_plan, review_record_plan
 
 PROJECT = Path(__file__).resolve().parents[1]
 TOOLCHAIN = PROJECT / "skills" / "remek" / "toolchain"
+RUN_CONFIGURATION = "Synthetic test fixture: fixed offline observations; no provider executed."
 PROFILE = {
     "kind": "manual-host",
     "name": "claude-code",
     "version": "1",
     "claim": "regression",
-    "runConfigDigest": "c" * 64,
+    "runConfigDigest": hashlib.sha256(RUN_CONFIGURATION.encode()).hexdigest(),
     "trialCount": 3,
     "minimumPassCount": 3,
 }
@@ -50,35 +46,29 @@ def initialized(tmp_path, *, project=False):
     return root
 
 
-def promote_skill(
-    tmp_path, root, *, exposure="private-only", workspace_name="promotion", name="deploy-safely"
-):
-    workspace = tmp_path / workspace_name
-    scaffold_workspace(root, workspace, skill_name=name)
-    policy = load_document(workspace / "policy.json", kind="skill-policy")
-    policy.update(
-        {
-            "lifecycle": "ready",
-            "exposure": exposure,
-            "stateReason": f"Owner reviewed {workspace_name}.",
-        }
-    )
-    write_input(workspace / "policy.json", policy)
-    apply(accept_plan(root, workspace))
+def render_skill(fields, body):
+    lines = ["---"]
+    for key, value in fields.items():
+        if isinstance(value, dict):
+            lines.append(f"{key}:")
+            lines.extend(f"  {name}: {json.dumps(item)}" for name, item in value.items())
+        else:
+            lines.append(f"{key}: {json.dumps(value)}")
+    return ("\n".join([*lines, "---"]) + "\n" + body).encode()
 
 
-def authored(tmp_path, root, name="deploy-safely"):
-    source = tmp_path / f"{name}-source.md"
-    source.write_text("# Observed work\n\nThe workflow completed successfully.\n")
-    workspace = tmp_path / f"{name}-new"
-    scaffold_workspace(
-        root,
-        workspace,
-        name=name,
-        origin="captured",
-        source=source,
-    )
-    (workspace / "candidate" / "SKILL.md").write_bytes(
+def set_exposure(root, exposure="private-only", name="deploy-safely"):
+    path = root / ".remek/skills" / name / "skill.json"
+    document = load_document(path, kind="skill-record")
+    document["exposure"] = exposure
+    write_input(path, document)
+
+
+def authored(_tmp_path, root, name="deploy-safely"):
+    config = load_document(root / "remek.json", kind="repository")
+    candidate = root / config["skillsRoot"] / name
+    candidate.mkdir(parents=True)
+    (candidate / "SKILL.md").write_bytes(
         render_skill(
             {
                 "name": name,
@@ -88,23 +78,49 @@ def authored(tmp_path, root, name="deploy-safely"):
             "# Safe deployment\n\nFollow the reviewed procedure and stop on drift.\n",
         )
     )
-    provenance = load_document(workspace / "provenance.json", kind="provenance")
-    provenance.update(
+    write_input(
+        root / ".remek/skills" / name / "skill.json",
         {
-            "rights": "owned",
-            "rightsBasis": "Authored from owned completed work.",
-            "license": "MIT",
-        }
+            "schema": "remek.2",
+            "kind": "skill-record",
+            "skill": name,
+            "exposure": "private-only",
+            "provenance": {
+                "origin": "captured",
+                "source": None,
+                "sourceNote": "Synthetic test fixture represents completed owned work.",
+                "upstreamRepository": "",
+                "upstreamRef": "",
+                "rights": "owned",
+                "rightsBasis": "Authored from owned completed work.",
+                "license": "MIT",
+            },
+            "cases": {
+                "routing": [
+                    {
+                        "id": "positive",
+                        "prompt": "Deploy this reviewed change safely.",
+                        "shouldActivate": True,
+                    },
+                    {"id": "contrast", "prompt": "Write a birthday poem.", "shouldActivate": False},
+                ],
+                "behavior": [
+                    {
+                        "id": "safe",
+                        "prompt": "Deploy the reviewed change.",
+                        "expectations": ["Stop on drift."],
+                    }
+                ],
+            },
+        },
     )
-    write_input(workspace / "provenance.json", provenance)
-    apply(accept_plan(root, workspace))
-
-    promote_skill(tmp_path, root, workspace_name=f"{name}-promotion", name=name)
+    config["governedSkills"] = sorted(set(config["governedSkills"]) | {name})
+    write_input(root / "remek.json", config)
 
 
 def distribution_document(name="org-private", skill="deploy-safely"):
     return {
-        "schema": "remek.1",
+        "schema": "remek.2",
         "kind": "distribution",
         "id": name,
         "audience": "private",
@@ -123,6 +139,7 @@ def distribution_document(name="org-private", skill="deploy-safely"):
             "behaviorProfiles": [dict(PROFILE)],
         },
         "privateDisclosure": "block",
+        "activeReview": None,
     }
 
 
@@ -131,64 +148,59 @@ def disclosure_entry(identifier, value, kind="public-disclosure", **fields):
 
 
 def disclosure_document(*entries):
-    return {"schema": "remek.1", "kind": "disclosure-policy", "entries": list(entries)}
+    return {"schema": "remek.2", "kind": "disclosure-policy", "entries": list(entries)}
 
 
-def accepted_distribution(tmp_path, root, name="org-private"):
-    artifact = write_input(tmp_path / f"{name}.json", distribution_document(name))
-    apply(distribution_accept_plan(root, artifact))
+def authored_distribution(_tmp_path, root, name="org-private"):
+    write_input(root / ".remek/distributions" / f"{name}.json", distribution_document(name))
+
+
+def completed_evaluation(template):
+    document = copy.deepcopy(template)
+    document["profile"] = {key: value for key, value in PROFILE.items() if key != "runConfigDigest"}
+    document["runConfiguration"] = RUN_CONFIGURATION
+    for trial in document["trials"]:
+        trial.update(outcome="pass", observation="Synthetic expected observation.")
+    return document
 
 
 def record_evidence(tmp_path, root, name="deploy-safely"):
     for kind in ("routing", "behavior"):
-        inspection = inspect_repository(root)
         plan = evaluation_plan(
-            inspection,
-            name,
-            kind,
-            "org-private" if kind == "routing" else None,
+            inspect_repository(root), name, kind, "org-private" if kind == "routing" else None
         )
-        document = plan.template()
-        document["profile"] = PROFILE
-        for result in document["results"]:
-            assert isinstance(result, dict)
-            result["passCount"] = PROFILE["trialCount"]
-        document["artifacts"] = [{"label": "evaluation-report", "digest": "d" * 64}]
-        artifact = tmp_path / f"{kind}-evidence.json"
-        artifact.write_text(json.dumps(document, sort_keys=True))
+        document = completed_evaluation(plan.template())
+        artifact = write_input(tmp_path / f"{kind}-evidence.json", document)
         apply(eval_record_plan(root, name, artifact))
 
 
-def approval_document(root, name="deploy-safely", **values):
-    document = approval_template(inspect_repository(root), "org-private", name)
+def review_document(root, distribution="org-private", **values):
+    document = review_template(inspect_repository(root), distribution)
     document.update(
         {
             "rightsReviewed": True,
+            "evidenceReviewed": True,
             "proprietaryContentReviewed": True,
-            "reviewer": "owner",
-            "reviewedOn": "2026-07-15",
-            **values,
+            "reviewer": "test owner",
+            "reviewedOn": "2026-09-04",
         }
+        | values
     )
     return document
 
 
-def record_approval(tmp_path, root, name="deploy-safely", *, public=False):
-    document = approval_document(root, name, publicIrreversibilityAcknowledged=public)
-    artifact = write_input(tmp_path / "approval.json", document)
-    apply(approve_record_plan(root, "org-private", name, artifact))
+def record_review(tmp_path, root, *, distribution="org-private", public=False):
+    document = review_document(root, distribution, publicIrreversibilityAcknowledged=public)
+    artifact = write_input(tmp_path / "review.json", document)
+    apply(review_record_plan(root, distribution, artifact))
 
 
 def ready_source(tmp_path):
     root = initialized(tmp_path)
     authored(tmp_path, root)
-    (root / ".remek/distributions").rmdir()
-    accepted_distribution(tmp_path, root)
-    records = root / ".remek/skills/deploy-safely"
-    for folder in ("evidence", "approvals"):
-        (records / folder).rmdir()
+    authored_distribution(tmp_path, root)
     record_evidence(tmp_path, root)
-    record_approval(tmp_path, root)
+    record_review(tmp_path, root)
     return root
 
 
@@ -198,7 +210,7 @@ def git_commit(root, message="checkpoint"):
         _git(root, "config", "user.email", "test@example.com")
         _git(root, "config", "user.name", "Test")
     _git(root, "add", "-A")
-    _git(root, "commit", "-qm", message)
+    _git(root, "-c", "commit.gpgSign=false", "commit", "-qm", message)
     return _git(root, "rev-parse", "HEAD", capture_output=True, text=True).stdout.strip()
 
 

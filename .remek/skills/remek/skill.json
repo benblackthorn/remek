@@ -1,0 +1,123 @@
+{
+  "cases": {
+    "behavior": [
+      {
+        "expectations": [
+          "Preserve the completed bytes and truthful source provenance.",
+          "Use ordinary reviewed files and Git for authoring; do not invoke removed commands.",
+          "Run structural checks and distinguish missing evidence from release readiness."
+        ],
+        "id": "ordinary-authoring",
+        "prompt": "Capture this completed owned procedure as a private governed skill."
+      },
+      {
+        "expectations": [
+          "Retain actual run configuration and every trial observation.",
+          "Show required-profile failures and require explicit acknowledgement without waiving passes.",
+          "Clear affected active reviews when recording new relevant evidence."
+        ],
+        "id": "failed-evidence",
+        "prompt": "Record a failed evaluation after an earlier pass and prepare a distribution review."
+      },
+      {
+        "expectations": [
+          "Present the complete review packet and use actual owner authorization for declarations.",
+          "Require clean raw-HEAD source and mirror, reviewed rights and license, eligible exposure, and authenticated public target.",
+          "Save, show, and apply the exact release plan under authorization.",
+          "Do not infer permission to commit, push, tag, install, publish, or change visibility."
+        ],
+        "id": "exact-release",
+        "prompt": "Prepare a public release for the selected distribution."
+      },
+      {
+        "expectations": [
+          "Refuse stale intent without forcing application.",
+          "Preserve foreign data and report exact changed paths, outcome, and residue.",
+          "Never claim unchanged state after a known or ambiguous mutation."
+        ],
+        "id": "drift-and-residue",
+        "prompt": "A saved plan drifted or apply returned residue. Finish safely."
+      }
+    ],
+    "routing": [
+      {
+        "id": "private-source",
+        "prompt": "Set up a governed private Agent Skills source with remek.",
+        "shouldActivate": true
+      },
+      {
+        "id": "govern-completed",
+        "prompt": "Govern this completed owned skill with remek, then install it under my authorization.",
+        "shouldActivate": true
+      },
+      {
+        "id": "revise",
+        "prompt": "Revise this skill in my remek source and show which evidence becomes stale.",
+        "shouldActivate": true
+      },
+      {
+        "id": "batch-review",
+        "prompt": "Record these actual observations and prepare a complete distribution review with remek.",
+        "shouldActivate": true
+      },
+      {
+        "id": "release-check",
+        "prompt": "Verify that this committed remek release mirror matches its source and target.",
+        "shouldActivate": true
+      },
+      {
+        "id": "audit",
+        "prompt": "Audit this untrusted skill with remek without executing it.",
+        "shouldActivate": true
+      },
+      {
+        "id": "installer",
+        "prompt": "Install a third-party Agent Skill for my coding agent.",
+        "shouldActivate": false
+      },
+      {
+        "id": "authoring",
+        "prompt": "Write or improve an Agent Skill from my rough idea.",
+        "shouldActivate": false
+      },
+      {
+        "id": "evaluation-run",
+        "prompt": "Run this skill against Claude and Codex and grade the transcripts.",
+        "shouldActivate": false
+      },
+      {
+        "id": "publication",
+        "prompt": "Push this repository, make it public, tag it, and publish a release.",
+        "shouldActivate": false
+      },
+      {
+        "id": "package",
+        "prompt": "Rewrite history and cut a release of this ordinary Python package.",
+        "shouldActivate": false
+      },
+      {
+        "id": "consumer-update",
+        "prompt": "Update every teammate's installed copy of our shared skills.",
+        "shouldActivate": false
+      }
+    ]
+  },
+  "exposure": "public-eligible",
+  "kind": "skill-record",
+  "provenance": {
+    "license": "MIT",
+    "origin": "designed",
+    "rights": "owned",
+    "rightsBasis": "Original project design, implementation, and documentation.",
+    "source": {
+      "digest": "6e4e03c3d26e0a80361c41d2263a8f8b0eab1b9a35a94c00f9d83f7719b59fb2",
+      "path": "sources/design-brief.md",
+      "type": "file"
+    },
+    "sourceNote": "Original retained project design. The v2 revision simplifies authoring and binds complete distribution reviews; this historical brief is not a new evaluation report.",
+    "upstreamRef": "",
+    "upstreamRepository": ""
+  },
+  "schema": "remek.2",
+  "skill": "remek"
+}

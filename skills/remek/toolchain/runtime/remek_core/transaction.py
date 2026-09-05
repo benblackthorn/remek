@@ -24,7 +24,7 @@ from .filesystem import (
     write_file_at,
     write_tree_at,
 )
-from .model import Error, PlannedChange
+from .model import Error, MutationOutcome, PlannedChange
 
 ChangeKind = Literal["write", "delete", "tree"]
 
@@ -107,6 +107,11 @@ class Residue:
 @dataclass(frozen=True)
 class ApplyOutcome:
     changed: bool
+    changed_paths: tuple[str, ...] = ()
+
+    @property
+    def outcome(self) -> MutationOutcome:
+        return "applied" if self.changed else "unchanged"
 
 
 @dataclass
@@ -178,7 +183,8 @@ def _open_states(
             )
         return states, list(boundaries.values())
     except BaseException:
-        _close(states, boundaries.values())
+        with suppress(BaseException):
+            _close(states, boundaries.values())
         raise
 
 
@@ -206,7 +212,7 @@ def _stage(state: _State) -> None:
 def _residue(state: _State, name: str, reason: str) -> Residue | None:
     try:
         identity = probe(state.parent, name)
-    except Error as exc:
+    except BaseException as exc:
         return Residue(str(state.change.path.parent / name), "unknown", f"{reason}: {exc}")
     if identity == ABSENT:
         return None
@@ -214,7 +220,12 @@ def _residue(state: _State, name: str, reason: str) -> Residue | None:
 
 
 def _remove_expected(state: _State, name: str, expected: str) -> Residue | None:
-    current = probe(state.parent, name)
+    try:
+        current = probe(state.parent, name)
+    except BaseException as exc:
+        return Residue(
+            str(state.change.path.parent / name), "unknown", f"cleanup unreadable: {exc}"
+        )
     if current == ABSENT:
         return None
     if current != expected:
@@ -223,11 +234,7 @@ def _remove_expected(state: _State, name: str, expected: str) -> Residue | None:
         remove_at(state.parent, name, expected)
     except BaseException as exc:
         detail = str(exc) or type(exc).__name__
-        return Residue(
-            str(state.change.path.parent / name),
-            probe(state.parent, name),
-            f"cleanup failed: {detail}",
-        )
+        return _residue(state, name, f"cleanup failed: {detail}")
     return None
 
 
@@ -327,8 +334,9 @@ def _classify_and_restore(state: _State) -> list[Residue]:  # noqa: PLR0912
 
 
 def _rollback(states: Iterable[_State]) -> list[Residue]:
+    states = tuple(states)
     residue: list[Residue] = []
-    for state in reversed(tuple(states)):
+    for state in reversed(states):
         try:
             residue.extend(_classify_and_restore(state))
         except BaseException as exc:
@@ -344,6 +352,13 @@ def _rollback(states: Iterable[_State]) -> list[Residue]:
                 if item is not None:
                     residue.append(item)
     residue.extend(_stage_residue(states))
+    named = {item.path for item in residue}
+    for state in states:
+        for name in (state.backup, state.rollback):
+            if str(state.change.path.parent / name) not in named:
+                item = _residue(state, name, "rollback residue preserved")
+                if item is not None:
+                    residue.append(item)
     return residue
 
 
@@ -355,11 +370,26 @@ def _close(states: Iterable[_State], boundaries: Iterable[OpenedBoundary]) -> No
         boundary.close()
 
 
-def _transaction_error(
+def _remaining_destinations(states: Iterable[_State]) -> tuple[tuple[str, ...], list[Residue]]:
+    paths: list[str] = []
+    residue: list[Residue] = []
+    for state in states:
+        try:
+            identity = probe(state.parent, state.name)
+        except BaseException as exc:
+            residue.append(Residue(str(state.change.path), "unknown", f"state unreadable: {exc}"))
+            continue
+        if identity != state.change.expected:
+            paths.append(str(state.change.path))
+    return tuple(sorted(paths)), residue
+
+
+def _transaction_error(  # noqa: PLR0913
     code: str,
     message: str,
     *,
-    changed: bool,
+    outcome: MutationOutcome,
+    changed_paths: tuple[str, ...] = (),
     residue: Iterable[Residue] = (),
     exit_code: int | None = None,
 ) -> Error:
@@ -367,7 +397,17 @@ def _transaction_error(
     if details:
         output = "; ".join(f"{item.path}: {item.reason}" for item in details)
         message = f"{message}: {output}"
-    return Error(code, message, changed=changed, exit_code=exit_code)
+    return Error(
+        code,
+        message,
+        outcome="unknown" if any(item.identity == "unknown" for item in details) else outcome,
+        changed_paths=changed_paths,
+        residue=tuple(
+            {"path": item.path, "identity": item.identity, "reason": item.reason}
+            for item in details
+        ),
+        exit_code=exit_code,
+    )
 
 
 def apply_changes(  # noqa: PLR0912, PLR0915
@@ -380,6 +420,8 @@ def apply_changes(  # noqa: PLR0912, PLR0915
     token = secrets.token_hex(8)
     states: list[_State] = []
     boundaries: list[OpenedBoundary] = []
+    completed = ApplyOutcome(False)
+    failed = False
     try:
         states, boundaries = _open_states(planned, token)
         for state in states:
@@ -404,16 +446,16 @@ def apply_changes(  # noqa: PLR0912, PLR0915
                 raise _transaction_error(
                     "transaction.stage-residue",
                     "staging failed and residue was preserved",
-                    changed=True,
+                    outcome="residue",
                     residue=residue,
                 ) from exc
             if isinstance(exc, Error):
-                raise
+                raise _transaction_error(exc.code, exc.message, outcome="unchanged") from None
             if isinstance(exc, KeyboardInterrupt):
                 raise _transaction_error(
                     "transaction.interrupted",
                     "mutation was interrupted before commit",
-                    changed=False,
+                    outcome="unchanged",
                     exit_code=130,
                 ) from None
             raise Error("transaction.stage", f"cannot stage mutation: {exc}") from None
@@ -452,30 +494,33 @@ def apply_changes(  # noqa: PLR0912, PLR0915
                 verify()
         except BaseException as exc:
             residue = _rollback(states)
-            restored = not residue and all(
-                probe(state.parent, state.name) == state.change.expected for state in states
-            )
+            changed_paths, unreadable = _remaining_destinations(states)
+            residue.extend(unreadable)
+            restored = not residue and not changed_paths
             if restored:
                 if isinstance(exc, KeyboardInterrupt):
                     raise _transaction_error(
                         "transaction.interrupted",
                         "mutation was interrupted and prior state was restored",
-                        changed=False,
+                        outcome="restored",
                         exit_code=130,
                     ) from None
                 if isinstance(exc, Error):
                     raise _transaction_error(
                         exc.code,
                         f"{exc.message}; prior state was restored",
-                        changed=False,
+                        outcome="restored",
                     ) from None
                 raise Error(
-                    "transaction.failed", f"mutation failed and prior state was restored: {exc}"
+                    "transaction.failed",
+                    f"mutation failed and prior state was restored: {exc}",
+                    outcome="restored",
                 ) from None
             raise _transaction_error(
                 "transaction.residue",
                 "mutation failed and exact residue was preserved",
-                changed=True,
+                outcome="residue" if residue else "unknown",
+                changed_paths=changed_paths,
                 residue=residue,
             ) from exc
 
@@ -487,12 +532,33 @@ def apply_changes(  # noqa: PLR0912, PLR0915
                     cleanup_residue.append(item)
         cleanup_residue.extend(_stage_residue(states))
         if cleanup_residue:
+            changed_paths, unreadable = _remaining_destinations(states)
+            cleanup_residue.extend(unreadable)
             raise _transaction_error(
                 "transaction.cleanup-residue",
                 "mutation committed but cleanup residue remains",
-                changed=True,
+                outcome="residue",
+                changed_paths=changed_paths,
                 residue=cleanup_residue,
             )
-        return ApplyOutcome(True)
+        changed_paths = tuple(
+            sorted(str(change.path) for change in planned if change.expected != change.after)
+        )
+        completed = ApplyOutcome(bool(changed_paths), changed_paths)
+        return completed
+    except BaseException:
+        failed = True
+        raise
     finally:
-        _close(states, boundaries)
+        try:
+            _close(states, boundaries)
+        except BaseException as exc:
+            # Descriptor disposal cannot replace an already classified mutation failure.
+            if not failed:
+                raise _transaction_error(
+                    "transaction.finalize",
+                    "descriptor finalization failed after the transaction outcome was established",
+                    outcome=completed.outcome,
+                    changed_paths=completed.changed_paths,
+                    exit_code=130 if isinstance(exc, KeyboardInterrupt) else 2,
+                ) from None

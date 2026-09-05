@@ -8,6 +8,6 @@ Include the affected commit, platform, command, expected boundary, and a
 sanitized minimal reproduction.
 
 Do not rely on the credential scan as proof that content is public-safe, or on
-receipts, approvals, and manifests as signatures or publication authority. See
+reports, reviews, and manifests as signatures or publication authority. See
 the complete trust assumptions, guarantees, and exclusions in the
 [`threat model`](../docs/threat-model.md).

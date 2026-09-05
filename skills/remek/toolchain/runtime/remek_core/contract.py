@@ -9,7 +9,7 @@ from typing import NoReturn, TypeAlias, cast
 from .filesystem import MAX_FILE_BYTES, read_regular
 from .model import Error
 
-SCHEMA = "remek.1"
+SCHEMA = "remek.2"
 MAX_DEPTH = 12
 MAX_ITEMS = 4096
 JSONScalar: TypeAlias = str | int | bool | None
@@ -21,7 +21,7 @@ def _pairs(items: Iterable[tuple[str, JSONValue]]) -> JSONObject:
     result: JSONObject = {}
     for key, value in items:
         if key in result:
-            raise Error(f"JSON object repeats key {key!r}")
+            raise Error("JSON object repeats a key")
         result[key] = value
     return result
 
@@ -35,6 +35,8 @@ def _float(value: str) -> NoReturn:
 
 
 def _text(value: str, *, label: str) -> None:
+    if not isinstance(value, str):
+        raise Error(f"JSON {label} must be a string")
     try:
         encoded = value.encode("utf-8", errors="strict")
     except UnicodeEncodeError:
@@ -63,16 +65,33 @@ def value_count(value: JSONValue, *, depth: int = 0) -> int:
     return count
 
 
-def _validate(value: JSONValue) -> int:
+def document_limit(kind: str) -> int:
+    """Bound bytes by the caller's expected kind, never an input's claimed kind."""
+    if kind == "skill-record":
+        return 256 * 1024
+    if kind in {"evaluation", "release-review"}:
+        return 512 * 1024
+    if kind in {"repository", "distribution", "disclosure-policy"}:
+        return 64 * 1024
+    if kind == "command-result":
+        return 1024 * 1024
+    return MAX_FILE_BYTES
+
+
+def _validate(value: JSONValue, *, kind: str, rendering: bool = False) -> int:
     count = value_count(value)
-    if count > MAX_ITEMS:
-        raise Error(f"JSON exceeds {MAX_ITEMS} values")
+    maximum = 16384 if kind == "release-review" else MAX_ITEMS
+    if rendering and kind == "command-result":
+        maximum = 32768
+    if count > maximum:
+        raise Error(f"JSON exceeds {maximum} values for {kind}")
     return count
 
 
 def parse_document(data: bytes, *, kind: str) -> JSONObject:
-    if len(data) > MAX_FILE_BYTES:
-        raise Error(f"JSON exceeds {MAX_FILE_BYTES} bytes")
+    maximum = document_limit(kind)
+    if len(data) > maximum:
+        raise Error(f"JSON exceeds {maximum} bytes for {kind}")
     try:
         text = data.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
@@ -96,8 +115,10 @@ def parse_document(data: bytes, *, kind: str) -> JSONObject:
     if not isinstance(value, dict):
         raise Error("JSON document must contain one object")
     document = cast(JSONObject, value)
-    _validate(document)
+    _validate(document, kind=kind)
     if document.get("schema") != SCHEMA:
+        if document.get("schema") == "remek.1":
+            raise Error("JSON schema remek.1 requires offline migration to a fresh remek.2 source")
         raise Error(f"JSON schema must be {SCHEMA!r}")
     if document.get("kind") != kind:
         raise Error(f"JSON kind must be {kind!r}")
@@ -105,7 +126,7 @@ def parse_document(data: bytes, *, kind: str) -> JSONObject:
 
 
 def load_document(path: Path, *, kind: str) -> JSONObject:
-    return parse_document(read_regular(path).data, kind=kind)
+    return parse_document(read_regular(path, limit=document_limit(kind)).data, kind=kind)
 
 
 def parse_canonical_document(data: bytes, *, kind: str) -> JSONObject:
@@ -117,19 +138,21 @@ def parse_canonical_document(data: bytes, *, kind: str) -> JSONObject:
 
 
 def load_canonical_document(path: Path, *, kind: str) -> JSONObject:
-    return parse_canonical_document(read_regular(path).data, kind=kind)
+    return parse_canonical_document(read_regular(path, limit=document_limit(kind)).data, kind=kind)
 
 
 def render_document(kind: str, fields: JSONObject) -> bytes:
     if not kind or set(fields) & {"schema", "kind"}:
         raise Error("document fields cannot replace schema or kind")
     document: JSONObject = {"schema": SCHEMA, "kind": kind, **fields}
-    _validate(document)
+    _validate(document, kind=kind, rendering=True)
     try:
         output = (json.dumps(document, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode(
             "utf-8", errors="strict"
         )
     except (TypeError, UnicodeEncodeError, ValueError) as exc:
         raise Error(f"JSON cannot be output canonically: {exc}") from None
-    parse_document(output, kind=kind)
+    maximum = document_limit(kind)
+    if len(output) > maximum:
+        raise Error(f"JSON exceeds {maximum} bytes for {kind}")
     return output

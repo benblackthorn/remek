@@ -6,33 +6,38 @@ Write `remek` only in lowercase. Architecture, formats, and trust live in
 
 ## Product and safety contract
 
-Preserve the approved outcomes: init, scaffold, accept, governed distribution
-and disclosure changes, retire, remove, check, repair, evidence preparation and
-recording, approval preparation and recording, release and release verification,
-plan inspection, audit, doctor, update, and apply.
+Preserve init, ordinary file/Git authoring, check, audit, reported evaluation,
+complete distribution review, exact plan show/apply, release plan/verification,
+artifact verification, and embedded update. The normal CLI has ten verbs and
+thirteen leaves, five mutation intents, and one `remek.2` family. The source-only
+v1 converter is isolated from normal runtime; no compatibility aliases exist.
 
-- Scaffold preserves completed work, a design, or a reviewed import. Accept
-  imports complete reviewed bytes and invents nothing.
-- Governed-source and mirror mutations save exact `remek.1` plans; apply
-  reconstructs intent and refuses drift. Filesystem owns identity, transaction
-  owns mutation, and plans owns intent. Preserve foreign data and report residue.
-- Checks, audits, evidence, and approvals are deterministic and offline; no
-  provider runner belongs here.
+- Authoring preserves completed work, actual designs, or reviewed imports and
+  invents no procedure or provenance. One skill record owns exposure, provenance,
+  and both case sets. README and authored declarations use ordinary file/Git edits.
+- Every remek mutation saves an exact plan; apply reconstructs intent and refuses
+  drift. Filesystem owns identity, transaction owns mutation, and plans own intent.
+  Preserve foreign data and report exact outcomes, changed paths, and residue.
+- Checks, audit, evaluation preparation/recording, and review are deterministic and
+  offline. No provider runner belongs here. Retain actual caller-reported trials
+  and configuration; never fabricate observations or review declarations.
+- One review binds full distribution/skill/policy context and every relevant report.
+  Required-profile failures need acknowledgement and cannot waive passes. New
+  relevant reports atomically clear affected active pointers. History is retained.
 - Release Git queries disable repository-configured execution, reject active
   content filters, hiding index flags, and submodules, and bind every owned
   regular file to its raw HEAD blob and Git-representable mode.
-- Check warns on stale evidence; malformed receipts and approvals fail without
-  hiding an otherwise valid skill. Release names a
-  distribution, requires current evidence and approval, and binds clean Git,
+- Check warns on missing/stale evidence; malformed records fail without hiding a
+  valid skill. Release requires current complete review/evidence, clean Git,
   branch, audience, credential-free remote, and authenticated target. It never
-  commits or pushes. Public manifests hash private context. Update keeps one layout.
+  commits or pushes. Manifests hash private context and bind review identity.
+  V2 needs fresh manifest lineage; update keeps one layout.
 - Shipped Python is 3.11+, standard-library only, and scoped to verified POSIX
-  local filesystems. Validate the runtime tree before import; do not claim
-  Windows support.
+  local filesystems. Validate the runtime tree before import; no Windows claim.
 - Trust the loaded bundle, interpreter, OS, intent, selected roots, and external
-  ancestors. Other inputs are hostile. After bootstrap, resolve each Git and
-  GitHub CLI executable canonically outside all selected roots and filter child
-  PATH. Exclude noncooperating writers, process death, and power loss.
+  ancestors. Other inputs are hostile. Resolve post-bootstrap Git/GitHub tools
+  canonically outside selected roots and filter child PATH for every launch.
+  Exclude noncooperating writers, process death, and power loss.
 
 ## Anti-bloat contract
 
@@ -59,11 +64,12 @@ Expected failures use `RemekError` without tracebacks. Never weaken tests.
 
 ## Fixed ceilings
 
-- At most 125,000 tracked `o200k_base` tokens and at most 70 files: at most
-  70,000 shipped, 35,000 test, 15,000 documentation, and 10,000 other tokens,
+- At most 141,000 tracked `o200k_base` tokens and at most 70 files: at most
+  70,000 shipped, 51,000 test, 15,000 documentation, and 12,500 other tokens,
   with zero vendor tokens.
-- At most 250 collected tests, exactly `skills/remek`, exactly one `remek.1`
-  schema family, and zero third-party runtime dependencies.
+- Report collected tests without a test-count cap; fixed token/file ceilings and
+  observable safety coverage remain binding. Exactly `skills/remek`, one normal
+  `remek.2` schema family, and zero third-party runtime dependencies.
 
 These owner-authorized ceilings permit readable safety boundaries and distinct
 destructive tests, not feature expansion. Existing checks enforce them; only
@@ -79,7 +85,7 @@ uvx ruff@0.15.20 check skills tests tools gate remek
 uvx ruff@0.15.20 format --check skills tests tools
 uvx mypy@2.1.0 --strict skills/remek/scripts/cli.py
 uvx mypy@2.1.0 --strict skills/remek/toolchain/scripts/cli.py skills/remek/toolchain/runtime
-uvx mypy@2.1.0 --strict tools/verify_release_manifest.py
+uvx mypy@2.1.0 --strict tools/verify_release_manifest.py tools/migrate_v1.py
 python3 tools/verify_release_manifest.py --self-test
 actionlint .github/workflows/gate.yml
 uv run --no-project --with tiktoken==0.11.0 python tools/repo_tokens.py

@@ -6,12 +6,19 @@ import json
 import os
 import shlex
 import sys
+from contextlib import suppress
+from dataclasses import replace
 from pathlib import Path
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn, cast, get_args
 
-from .contract import JSONObject, parse_document, render_document as render
-from .filesystem import checked_root as checked, entry_exists as exists, write_artifact
-from .model import Error, Finding, Result, Status, safe_text
+from .contract import SCHEMA, JSONObject, load_document, parse_document, render_document as render
+from .filesystem import (
+    checked_path,
+    checked_root as checked,
+    entry_exists as exists,
+    write_artifact,
+)
+from .model import Error, Finding, MutationOutcome, Result, Status, safe_text
 from .plans import (
     MAX_DIFF_BYTES,
     Plan,
@@ -23,32 +30,28 @@ from .plans import (
     verify_operation_plan,
 )
 from .repository import (
-    approval_template,
+    DisclosurePolicy,
     audit_repository,
     evaluation_plan,
     inspect_repository as inspect,
+    parse_disclosure,
+    redact_credential_text,
     repository_findings as check,
-    release_findings,
 )
+from .review import release_findings, review_status, review_summary, review_template
 from .transaction import apply_changes
 from .workflows import (
-    accept_plan,
-    approve_record_plan,
-    disclosure_accept_plan,
-    distribution_accept_plan,
     eval_record_plan,
+    review_record_plan,
     init_plan,
     release_plan,
     release_verify,
-    remove_plan,
-    repair_plan,
-    retire_plan,
-    scaffold_workspace,
     update_plan,
     verify_materialized_release,
 )
 
 MAX_RENDERED_BYTES = 1024 * 1024
+_MAX_FALLBACK_BYTES = 1024 * 1024
 
 
 def _next_command(bundle: Path, root: Path | None, *arguments: str) -> str:
@@ -70,6 +73,11 @@ class _Parser(argparse.ArgumentParser):
         super().__init__(*args, **kwargs)
 
     def error(self, message: str) -> NoReturn:
+        if "argument command: invalid choice" in message:
+            message += (
+                "; use --help for v2 commands and ordinary file/Git authoring; "
+                "v1 sources require the producer tools/migrate_v1.py rehearsal"
+            )
         raise Error("cli.arguments", message)
 
 
@@ -77,7 +85,7 @@ def _output(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", type=Path, help="save the exact operation plan")
 
 
-def _parser() -> _Parser:  # noqa: PLR0915
+def _parser() -> _Parser:
     parser = _Parser(
         prog="remek",
         description=(
@@ -86,142 +94,83 @@ def _parser() -> _Parser:  # noqa: PLR0915
     )
     parser.add_argument("--root", type=Path, help="governed source root; default current directory")
     parser.add_argument("--json", action="store_true", help="emit one canonical JSON result")
-    parser.add_argument("--version", action="version", version="remek 1.0.5")
+    parser.add_argument("--version", action="version", version="remek 2.0.0")
     commands = parser.add_subparsers(dest="command", required=True)
-
-    def command(name: str, help_text: str) -> argparse.ArgumentParser:
-        return commands.add_parser(name, help=help_text)
-
-    init = command("init", "initialize or wire a governed source")
+    init = commands.add_parser("init", help="initialize a governed source")
     init.add_argument("target", type=Path)
     init.add_argument("--project", action="store_true", help="govern .agents/skills")
     _output(init)
-
-    scaffold = command("scaffold", "create a disposable authoring workspace")
-    selection = scaffold.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--name", help="new skill name")
-    selection.add_argument("--skill", help="governed skill to revise")
-    scaffold.add_argument("--origin", choices=("captured", "designed", "imported"))
-    scaffold.add_argument("--source", type=Path, help="completed work, design, or reviewed skill")
-    scaffold.add_argument(
-        "--workspace", type=Path, required=True, help="absent path outside the source and Git"
+    check_parser = commands.add_parser(
+        "check", help="check source and optional distribution readiness"
     )
-
-    accept = command("accept", "plan acceptance of a complete workspace")
-    accept.add_argument(
-        "--workspace", type=Path, required=True, help="complete owner-only scaffold workspace"
-    )
-    _output(accept)
-
+    check_parser.add_argument("--distribution")
     for name, help_text in (
-        ("distribution", "govern distribution definitions"),
-        ("disclosure", "govern repository disclosure policy"),
+        ("audit", "inspect an untrusted payload"),
+        ("verify", "verify a materialized artifact"),
     ):
-        owner = command(name, help_text)
-        accept = owner.add_subparsers(dest=f"{name}_action", required=True).add_parser("accept")
-        accept.add_argument("--from", dest="source", type=Path, required=True)
-        _output(accept)
-
-    retire = command("retire", "retire a skill while retaining history")
-    retire.add_argument("skill")
-    retire.add_argument("--reason", required=True)
-    _output(retire)
-    remove = command("remove", "remove an unselected skill and its record")
-    remove.add_argument("skill")
-    _output(remove)
-
-    check = command("check", "run deterministic offline contracts")
-    check.add_argument("--release", metavar="DISTRIBUTION")
-    for name, help_text in (
-        ("repair", "plan safe mechanical corrections"),
-        ("update", "replace the embedded trusted toolchain"),
-    ):
-        _output(command(name, help_text))
-
-    eval_command = command("eval", "prepare or record offline evidence")
-    eval_actions = eval_command.add_subparsers(dest="eval_action", required=True)
-    eval_plan_parser = eval_actions.add_parser("plan")
-    eval_plan_parser.add_argument("skill")
-    eval_plan_parser.add_argument("--distribution")
-    eval_plan_parser.add_argument("--kind", choices=("routing", "behavior"), default="routing")
-    eval_record = eval_actions.add_parser("record")
-    eval_record.add_argument("skill")
-    eval_record.add_argument("--from", dest="evidence", type=Path, required=True)
-    _output(eval_record)
-
-    approve = command("approve", "prepare or record release approval")
-    approve_actions = approve.add_subparsers(dest="approve_action", required=True)
+        commands.add_parser(name, help=help_text).add_argument("target", type=Path)
+    evaluation = commands.add_parser("eval", help="prepare or record offline observations")
+    actions = evaluation.add_subparsers(dest="eval_action", required=True)
+    item = actions.add_parser("plan")
+    item.add_argument("skill")
+    item.add_argument("--kind", required=True, choices=("routing", "behavior"))
+    item.add_argument("--distribution")
+    item = actions.add_parser("record")
+    item.add_argument("skill")
+    item.add_argument("--from", dest="evidence", type=Path, required=True)
+    _output(item)
+    review = commands.add_parser("review", help="prepare or record a complete distribution review")
+    actions = review.add_subparsers(dest="review_action", required=True)
     for action in ("plan", "record"):
-        item = approve_actions.add_parser(action)
+        item = actions.add_parser(action)
         item.add_argument("distribution")
-        item.add_argument("--skill", required=True)
         if action == "record":
-            item.add_argument("--from", dest="approval", type=Path, required=True)
+            item.add_argument("--from", dest="review", type=Path, required=True)
             _output(item)
-
-    release = commands.add_parser(
-        "release",
-        help="plan or verify one exact release",
-        usage=(
-            "remek release DIST (--mirror ABS | --staging-only ABS)\n"
-            "       remek release verify DIST --mirror ABS"
-        ),
-    )
-    release.add_argument(
-        "distribution", metavar="DIST", help="distribution id; use 'verify DIST' to verify"
-    )
-    release.add_argument("verify_distribution", nargs="?", help=argparse.SUPPRESS)
-    release_destination = release.add_mutually_exclusive_group(required=True)
-    release_destination.add_argument(
-        "--mirror", type=Path, metavar="ABS", help="managed mirror path"
-    )
-    release_destination.add_argument(
-        "--staging-only", dest="staging", type=Path, metavar="ABS", help="unverified staging path"
-    )
-    release.add_argument(
-        "--adopt-existing", action="store_true", help="adopt unmanifested skills on first release"
-    )
-    _output(release)
-
-    show = (
-        command("plan", "inspect a saved operation plan")
-        .add_subparsers(dest="plan_action", required=True)
-        .add_parser("show")
-    )
+    release = commands.add_parser("release", help="plan or verify an exact release")
+    actions = release.add_subparsers(dest="release_action", required=True)
+    item = actions.add_parser("plan")
+    item.add_argument("distribution")
+    destination = item.add_mutually_exclusive_group(required=True)
+    destination.add_argument("--mirror", type=Path)
+    destination.add_argument("--staging", type=Path)
+    item.add_argument("--adopt-existing", action="store_true")
+    _output(item)
+    item = actions.add_parser("verify")
+    item.add_argument("distribution")
+    item.add_argument("--mirror", type=Path, required=True)
+    show = commands.add_parser("show", help="reconstruct and inspect an exact saved plan")
     show.add_argument("plan", type=Path)
     show.add_argument(
-        "--max-bytes",
-        type=int,
-        default=MAX_DIFF_BYTES,
-        help="only lower the 768 KiB rendered-diff ceiling",
+        "--max-bytes", type=int, default=MAX_DIFF_BYTES, help="only lower the 768 KiB diff ceiling"
     )
-
-    audit = command("audit", "inspect an untrusted skill payload read-only")
-    audit.add_argument("target", type=Path)
-    command("doctor", "diagnose source and trusted toolchain")
-    apply = command("apply", "apply one exact reviewed operation plan")
-    apply.add_argument("plan", type=Path)
+    commands.add_parser("apply", help="apply an exact saved plan").add_argument("plan", type=Path)
+    _output(commands.add_parser("update", help="replace the embedded trusted toolchain"))
     return parser
 
 
-def _plan_result(plan: Plan, destination: Path | None, bundle: Path) -> Result:
-    output, digest = operation_document(plan, bundle)
-    artifact = None
-    if destination is not None and plan.changes:
-        artifact = str(write_artifact(validate_output_path(destination, plan, bundle), output))
-    data = {
+def _plan_data(plan: Plan, document: JSONObject, artifact: str | None) -> dict[str, object]:
+    return {
         **plan.data,
         "root": str(plan.root),
-        "planDigest": digest,
+        "planDigest": document["planDigest"],
         "planOutput": artifact,
-        "bundleIdentity": parse_document(output, kind="operation-plan").get("bundleIdentity"),
+        "bundleIdentity": document["bundleIdentity"],
         "bindings": plan.bindings,
         "sources": [item.as_dict() for item in plan.sources],
     }
+
+
+def _plan_result(plan: Plan, destination: Path | None, bundle: Path) -> Result:
+    output, _digest = operation_document(plan, bundle)
+    artifact = None
+    if destination is not None and plan.changes:
+        artifact = str(write_artifact(validate_output_path(destination, plan, bundle), output))
+    data = _plan_data(plan, parse_document(output, kind="operation-plan"), artifact)
     if not plan.changes:
         return Result(plan.command, "ok", "already current; no plan file written", data=data)
     summary = (
-        "exact plan saved; review it with plan show before apply"
+        "exact plan saved; review it with show before apply"
         if artifact
         else "preview only; rerun with --output to save an applicable plan"
     )
@@ -235,7 +184,6 @@ def _plan_result(plan: Plan, destination: Path | None, bundle: Path) -> Result:
             _next_command(
                 bundle,
                 None if plan.command == "init" else plan.root,
-                "plan",
                 "show",
                 artifact,
             )
@@ -258,16 +206,20 @@ def _findings_result(
     )
 
 
-def _apply_result(arguments: argparse.Namespace, bundle: Path) -> Result:
-    loaded = load_operation_plan(arguments.plan)
-    selected = arguments.root
+def _assert_plan_root(selected: Path | None, root: Path) -> None:
     if selected is not None:
         absolute = selected.expanduser().absolute()
         canonical = (
             checked(absolute) if exists(absolute) else checked(absolute.parent) / absolute.name
         )
-        if canonical != loaded.root:
-            raise Error("plan.root", "root differs; nothing applied; use plan root")
+        if canonical != root:
+            raise Error("plan.root", "root differs; use the saved plan root")
+
+
+def _apply_result(arguments: argparse.Namespace, bundle: Path) -> Result:
+    loaded = load_operation_plan(arguments.plan)
+    _assert_plan_root(arguments.root, loaded.root)
+    arguments.source_root = loaded.root
     plan = reconstruct_plan(loaded, bundle)
     digest = verify_operation_plan(loaded, plan, bundle)
     findings: tuple[Finding, ...] = ()
@@ -280,15 +232,49 @@ def _apply_result(arguments: argparse.Namespace, bundle: Path) -> Result:
                 raise Error("apply.postcondition", "release destination is unavailable")
             verify_materialized_release(Path(destination))
             return
-        findings = tuple(
-            item for item in check(inspect(plan.root)) if item.code != "transaction.residue"
+        inspection = inspect(plan.root)
+        inspection = replace(
+            inspection,
+            issues=tuple(item for item in inspection.issues if item.code != "transaction.residue"),
         )
+        findings = tuple(item for item in check(inspection) if item.code != "transaction.residue")
         if any(item.severity == "error" for item in findings):
             raise Error("apply.postcondition", "applied state failed repository checking")
+        if plan.command == "review-record":
+            distribution = cast(str, plan.inputs["distribution"])
+            if (
+                inspection.distribution(distribution).active_review != plan.data["reviewId"]
+                or not review_status(inspection, distribution)[0]
+            ):
+                raise Error(
+                    "apply.postcondition", "recorded review failed current-context checking"
+                )
 
-    outcome = apply_changes(plan.changes, verify=verify)
+    identity = {
+        **plan.data,
+        "root": str(plan.root),
+        "planDigest": digest,
+        "operation": plan.command,
+    }
+    try:
+        outcome = apply_changes(plan.changes, verify=verify)
+    except Error as exc:
+        return _error_result(arguments, "refused", exc, data=identity)
     if plan.command != "release":
-        findings = check(inspect(plan.root))
+        try:
+            findings = check(inspect(plan.root))
+        except (Exception, KeyboardInterrupt):
+            return _error_result(
+                arguments,
+                "refused",
+                Error(
+                    "apply.final-check",
+                    "applied changes but final inspection failed",
+                    outcome=outcome.outcome,
+                    changed_paths=outcome.changed_paths,
+                ),
+                data=identity,
+            )
     errors = any(item.severity == "error" for item in findings)
     status: Status = "refused" if errors and outcome.changed else "issues" if errors else "ok"
     if errors and outcome.changed:
@@ -308,7 +294,12 @@ def _apply_result(arguments: argparse.Namespace, bundle: Path) -> Result:
         changed=outcome.changed,
         findings=findings,
         changes=plan.project(),
-        data={"root": str(plan.root), "planDigest": digest, "operation": plan.command},
+        data={
+            **identity,
+            "outcome": outcome.outcome,
+            "changedPaths": list(outcome.changed_paths),
+            "residue": [],
+        },
     )
 
 
@@ -333,6 +324,8 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
     arguments: argparse.Namespace, bundle: Path
 ) -> Result:
     command = arguments.command
+    if arguments.root is not None and command in {"init", "audit", "verify"}:
+        raise Error("cli.arguments", f"{command} takes an explicit path and forbids --root")
     if command == "apply":
         return _apply_result(arguments, bundle)
     if command == "init":
@@ -345,57 +338,48 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
             arguments.output,
             bundle,
         )
-    root = checked(arguments.root or Path.cwd())
+    root = (
+        checked(arguments.root or Path.cwd())
+        if command not in {"audit", "verify", "show"}
+        else Path.cwd()
+    )
     output = getattr(arguments, "output", None)
 
     def planned(value: Plan) -> Result:
         return _plan_result(value, output, bundle)
 
-    if command == "scaffold":
-        data = scaffold_workspace(
-            root,
-            arguments.workspace,
-            name=arguments.name,
-            origin=arguments.origin,
-            source=arguments.source,
-            skill_name=arguments.skill,
-            bundle=bundle,
-        )
-        return Result("scaffold", "ok", "disposable workspace created", changed=True, data=data)
-    if command == "accept":
-        return planned(accept_plan(root, arguments.workspace))
-    if command == "distribution":
-        return planned(distribution_accept_plan(root, arguments.source))
-    if command == "disclosure":
-        return planned(disclosure_accept_plan(root, arguments.source))
-    if command == "retire":
-        return planned(retire_plan(root, arguments.skill, arguments.reason))
-    if command == "remove":
-        return planned(remove_plan(root, arguments.skill))
     if command == "check":
         inspection = inspect(root)
-        distribution = arguments.release
+        distribution = arguments.distribution
+        structural = check(inspection)
         findings = (
-            release_findings(inspection, distribution)
-            if distribution is not None
-            else check(inspection)
+            release_findings(inspection, distribution) if distribution is not None else structural
         )
+        _ready, review_state = (
+            review_status(inspection, distribution) if distribution is not None else (None, None)
+        )
+
         return _findings_result(
             "check",
             findings,
-            {"root": str(root), "release": distribution},
+            {
+                "root": str(root),
+                "structuralValid": not any(item.severity == "error" for item in structural),
+                "skills": [
+                    {
+                        "skill": item.name,
+                        "candidateDigest": item.digest,
+                        "exposure": item.record.exposure,
+                    }
+                    for item in inspection.skills
+                ],
+                "distribution": distribution,
+                "releaseReady": (not any(item.severity == "error" for item in findings))
+                if distribution is not None
+                else None,
+                "reviewStatus": review_state,
+            },
         )
-    if command == "repair":
-        inspection = inspect(root)
-        findings = check(inspection)
-        errors = tuple(item for item in findings if item.severity == "error")
-        if any(not item.repairable for item in errors):
-            return _findings_result("repair", findings, {"root": str(root)})
-        # No mutation occurred; reuse is valid only within this preflight boundary.
-        plan = repair_plan(root, inspection)
-        if errors and not plan.changes:
-            return _findings_result("repair", findings, {"root": str(root)})
-        return planned(plan)
     if command == "eval":
         inspection = inspect(root)
         skill = arguments.skill
@@ -416,8 +400,7 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
                 "eval plan",
                 "offline evidence template prepared",
                 evidence.template(),
-                next_action="complete and save the observed results, then run "
-                + _next_command(
+                next_action=_next_command(
                     bundle,
                     root,
                     "eval",
@@ -432,51 +415,43 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
                 routingCaseSetDigest=selected.routing_cases.digest,
                 behaviorCaseSetDigest=selected.behavior_cases.digest,
                 routingCatalogDigest=evidence.routing_catalog_digest,
+                execution="not-performed",
             )
         return planned(eval_record_plan(root, skill, arguments.evidence))
-    if command == "approve":
-        distribution, skill = arguments.distribution, arguments.skill
-        if arguments.approve_action == "plan":
-            return _template_result(
-                "approve plan",
-                "reviewer-owned approval template prepared",
-                approval_template(inspect(root), distribution, skill),
-                next_action="complete and save the review declaration, then run "
-                + _next_command(
+    if command == "review":
+        distribution = arguments.distribution
+        if arguments.review_action == "plan":
+            inspection = inspect(root)
+            template = review_template(inspection, distribution)
+            summary = review_summary(inspection, distribution)
+            findings = release_findings(inspection, distribution)
+            return Result(
+                "review plan",
+                "issues" if any(item.severity == "error" for item in findings) else "ok",
+                "complete distribution review packet prepared; declarations require actual review",
+                findings=findings,
+                data={"template": template, "review": summary},
+                next_action=_next_command(
                     bundle,
                     root,
-                    "approve",
+                    "review",
                     "record",
                     distribution,
-                    "--skill",
-                    skill,
                     "--from",
-                    "/absolute/path/to/approval.json",
+                    "/absolute/path/to/review.json",
                     "--output",
-                    "/absolute/path/to/approval-plan.json",
+                    "/absolute/path/to/review-plan.json",
                 ),
             )
-        return planned(approve_record_plan(root, distribution, skill, arguments.approval))
+        return planned(review_record_plan(root, distribution, arguments.review))
     if command == "release":
-        if arguments.distribution == "verify":
-            distribution, mirror = arguments.verify_distribution, arguments.mirror
-            if (
-                distribution is None
-                or mirror is None
-                or arguments.staging is not None
-                or arguments.output is not None
-                or arguments.adopt_existing
-            ):
-                raise Error("cli.arguments", "release verify requires exactly DIST --mirror ABS")
-            data = release_verify(root, distribution, mirror)
+        if arguments.release_action == "verify":
             return Result(
                 "release verify",
                 "ok",
-                "release is push-ready at this point in time",
-                data=data,
+                "artifact, source readiness, target, and commit lineage verified at this time",
+                data=release_verify(root, arguments.distribution, arguments.mirror),
             )
-        if arguments.verify_distribution is not None:
-            raise Error("cli.arguments", "release accepts one distribution name")
         return planned(
             release_plan(
                 root,
@@ -486,20 +461,40 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
                 adopt=arguments.adopt_existing,
             )
         )
-    if command == "plan":
+    if command == "verify":
+        manifest = verify_materialized_release(arguments.target)
+        return Result(
+            "verify",
+            "ok",
+            "materialized artifact matches its declared inventory",
+            data={
+                "artifactVerified": True,
+                "reviewDigest": manifest["reviewDigest"],
+                "releaseId": manifest["releaseId"],
+                "sourceReadinessVerified": False,
+                "targetVerified": False,
+                "publicationPerformed": False,
+            },
+        )
+    if command == "show":
         loaded = load_operation_plan(arguments.plan)
+        _assert_plan_root(arguments.root, loaded.root)
+        arguments.source_root = loaded.root
         plan = reconstruct_plan(loaded, bundle)
-        digest = verify_operation_plan(loaded, plan, bundle)
+        verify_operation_plan(loaded, plan, bundle)
         max_bytes = arguments.max_bytes
         if arguments.json:
             max_bytes = min(max_bytes, MAX_RENDERED_BYTES // 3)
         diff = plan_diff(plan, max_bytes=max_bytes)
         return Result(
-            "plan show",
+            "show",
             "ok",
             f"exact plan reconstructed; {len(plan.changes)} change(s) and content diff follow",
             changes=plan.project(),
-            data={"root": str(plan.root), "planDigest": digest, "diff": diff},
+            data={
+                **_plan_data(plan, loaded.document, str(arguments.plan.expanduser().absolute())),
+                "diff": diff,
+            },
         )
     if command == "audit":
         target = checked(arguments.target)
@@ -514,33 +509,20 @@ def _dispatch(  # noqa: PLR0911, PLR0912, PLR0915
                 else f"audited {target}; payload is structurally compatible"
             ),
             findings=findings,
-            data={"root": str(target)},
-        )
-    if command == "doctor":
-        inspection = inspect(root)
-        findings = check(inspection)
-        error_count = sum(item.severity == "error" for item in findings)
-        return Result(
-            "doctor",
-            "issues" if error_count else "ok",
-            (
-                f"diagnosed source and trusted toolchain; found {error_count} blocking issue(s)"
-                if error_count
-                else "diagnosed source and trusted toolchain; both are internally consistent"
-            ),
-            findings=findings,
-            data={
-                "root": str(root),
-                "skills": [item.name for item in inspection.skills],
-                "toolchain": str(bundle),
-            },
+            data={"target": str(target), "profile": "remek-text", "supported": not error_count},
         )
     if command == "update":
         return planned(update_plan(root, bundle))
     raise Error("cli.command", f"unsupported command: {command}")
 
 
-def _error_result(arguments: argparse.Namespace | None, status: Status, error: Error) -> Result:
+def _error_result(
+    arguments: argparse.Namespace | None,
+    status: Status,
+    error: Error,
+    *,
+    data: dict[str, object] | None = None,
+) -> Result:
     command = cast(str, arguments.command) if arguments is not None else "remek"
     return Result(
         command,
@@ -549,6 +531,91 @@ def _error_result(arguments: argparse.Namespace | None, status: Status, error: E
         changed=error.changed,
         findings=(Finding(error.code, "error", error.message),),
         exit_override=error.exit_code,
+        data={
+            **(data or {}),
+            "outcome": error.outcome,
+            "changedPaths": list(error.changed_paths),
+            "residue": list(error.residue),
+        },
+    )
+
+
+def _diagnostic_policy(arguments: argparse.Namespace | None) -> DisclosurePolicy | None:
+    if arguments is None:
+        return None
+    root = getattr(arguments, "source_root", arguments.root or Path.cwd())
+    if arguments.command in {"init", "audit", "verify"}:
+        root = getattr(arguments, "target", root)
+    try:
+        root = checked(root)
+        return parse_disclosure(
+            load_document(
+                checked_path(root, root / ".remek/disclosure-policy.json"), kind="disclosure-policy"
+            )
+        )
+    except (Error, OSError):
+        return None
+
+
+def _redacted_result(result: Result, policy: DisclosurePolicy | None) -> Result:
+    # Redact only the output projection; canonical records and saved plans retain their bytes.
+    def visible(value: object, path: tuple[str, ...] = ()) -> Any:
+        if isinstance(value, str):
+            match path, value:
+                case ("outcome",), _ if value in get_args(MutationOutcome):
+                    return value
+                case (
+                    (
+                        ("operation",),
+                        "init" | "eval-record" | "review-record" | "release" | "update",
+                    )
+                    | (("mode",), "managed" | "staging")
+                    | (("reviewStatus",), "missing" | "invalid" | "stale" | "current")
+                    | (("execution",), "not-performed")
+                    | (("profile",), "remek-text")
+                    | (("template", "schema"), "remek.2")
+                    | (("template", "kind"), "evaluation" | "release-review")
+                    | (("template", "evidenceKind"), "routing" | "behavior")
+                    | (("template", "profile", "kind"), "manual-host")
+                    | (("template", "profile", "claim"), "regression")
+                    | (("template", "trials", "[]", "outcome"), "unreported")
+                    | (("review", "blockingFindings", "[]", "code"), _)
+                ):
+                    return value
+            return redact_credential_text(value, policy)
+        if isinstance(value, dict):
+            projected = {}
+            for key, item in value.items():
+                label = visible(key) if path == ("bindings", "source") else key
+                if label in projected:
+                    raise Error(
+                        "output.redaction", "redaction would merge distinct source bindings"
+                    )
+                projected[label] = visible(item, (*path, key))
+            return projected
+        if isinstance(value, (list, tuple)):
+            return [visible(item, (*path, "[]")) for item in value]
+        return value
+
+    return replace(
+        result,
+        summary=visible(result.summary),
+        findings=tuple(
+            replace(item, message=visible(item.message), path=visible(item.path))
+            for item in result.findings
+        ),
+        changes=tuple(
+            replace(
+                item,
+                path=visible(item.path),
+                before=visible(item.before),
+                after=visible(item.after),
+                reason=visible(item.reason),
+            )
+            for item in result.changes
+        ),
+        data=visible(result.data),
+        next_action=visible(result.next_action),
     )
 
 
@@ -568,9 +635,10 @@ def _render(result: Result, *, json_mode: bool) -> str:
             value = result.data.get(key)
             if value is not None:
                 lines.append(f"  {label}: {safe_text(value)}")
-        template = result.data.get("template")
-        if isinstance(template, dict):
-            lines.append(json.dumps(template, ensure_ascii=True, sort_keys=True, indent=2))
+        for key in ("template", "review"):
+            value = result.data.get(key)
+            if isinstance(value, dict):
+                lines.append(json.dumps(value, ensure_ascii=True, sort_keys=True, indent=2))
         for change in result.changes:
             lines.append(
                 f"  {safe_text(change.action)} {safe_text(change.path)}: "
@@ -593,6 +661,116 @@ def _render(result: Result, *, json_mode: bool) -> str:
     return output
 
 
+def _output_failure(
+    result: Result, *, json_mode: bool, policy: DisclosurePolicy | None = None
+) -> tuple[Result, str]:
+    outcome = result.data.get("outcome", "unknown" if result.changed else "unchanged")
+    if not isinstance(outcome, str) or outcome not in get_args(MutationOutcome):
+        outcome = "unknown" if result.changed else "unchanged"
+    changed = result.changed or outcome in {"applied", "residue", "unknown"}
+    data: dict[str, object] = {
+        key: result.data[key]
+        for key in (
+            "operation",
+            "root",
+            "planDigest",
+            "planOutput",
+            "bundleIdentity",
+            "reportId",
+            "reviewId",
+            "contextDigest",
+            "releaseId",
+            "distribution",
+            "mode",
+        )
+        if key in result.data and isinstance(result.data[key], (str, bool, type(None)))
+    }
+    data.update(
+        outcome=outcome,
+        changedPaths=result.data.get("changedPaths", []),
+        residue=result.data.get("residue", []),
+    )
+    failed = Result(
+        result.command,
+        "failed",
+        "command output failed; inspect the recorded mutation outcome",
+        changed=changed,
+        exit_override=3 if changed else 2,
+        findings=(
+            Finding("output.invalid", "error", "normal command output could not be delivered"),
+        ),
+        data=data,
+    )
+    # Bound independently; do not retry the normal renderer or truncate review packets.
+    try:
+        failed = _redacted_result(failed, policy)
+        data = failed.data
+
+        def encode(value: Result) -> str:
+            return (
+                json.dumps(
+                    value.as_dict(), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+                )
+                if json_mode
+                else f"output.invalid: {safe_text(value.command)}; "
+                + json.dumps(value.data, ensure_ascii=True)
+            ) + "\n"
+
+        output = encode(failed)
+        if len(output.encode()) > _MAX_FALLBACK_BYTES:
+            omitted = {
+                key: len(value)
+                for key, value in data.items()
+                if key in {"changedPaths", "residue"} and isinstance(value, (list, tuple))
+            }
+            data = {
+                key: value for key, value in data.items() if key not in {"changedPaths", "residue"}
+            }
+            data.update(changedPaths=[], residue=[], outputTruncated=True, omittedEntries=omitted)
+            failed = replace(
+                failed,
+                data=data,
+                summary=(
+                    "output identifiers exceed the fallback limit; "
+                    "omitted entries require filesystem inspection"
+                ),
+            )
+            output = encode(failed)
+            if len(output.encode()) > _MAX_FALLBACK_BYTES:
+                failed = replace(
+                    failed,
+                    command="remek",
+                    data={
+                        "outcome": outcome,
+                        "changedPaths": [],
+                        "residue": [],
+                        "outputTruncated": True,
+                        "identityFieldsOmitted": True,
+                    },
+                )
+                output = encode(failed)
+        return failed, output
+    except (Exception, KeyboardInterrupt):
+        # Even a failed fallback encoder cannot erase a known transaction outcome.
+        output = (
+            (
+                f'{{"schema":"{SCHEMA}","kind":"command-result","command":"remek",'
+                f'"status":"failed","changed":{str(changed).lower()},'
+                '"summary":"fallback encoder failed; outcome identifiers unavailable",'
+                '"findings":[{"code":"output.invalid","severity":"error",'
+                '"message":"fallback encoder failed","path":null,"repairable":false}],'
+                f'"changes":[],"data":{{"outcome":"{outcome}","identityFieldsOmitted":true}},'
+                f'"nextAction":null,"exitCode":{failed.exit_code}}}\n'
+            )
+            if json_mode
+            else (
+                f"output.invalid: outcome={outcome}; changed={str(changed).lower()}; "
+                f"exitCode={failed.exit_code}; outcome identifiers could not be rendered\n"
+            )
+        )
+        return failed, output
+
+
 def main(argv: list[str] | None = None, *, bundle: Path) -> int:
     raw = sys.argv[1:] if argv is None else argv
     stop = raw.index("--") if "--" in raw else len(raw)
@@ -600,7 +778,8 @@ def main(argv: list[str] | None = None, *, bundle: Path) -> int:
     arguments: argparse.Namespace | None = None
     try:
         selected_toolchain = checked(bundle)
-        arguments = _parser().parse_args(raw)
+        arguments = argparse.Namespace(root=None, command="remek")
+        _parser().parse_args(raw, namespace=arguments)
         result = _dispatch(arguments, selected_toolchain)
     except SystemExit as exc:
         return int(exc.code or 0)
@@ -618,11 +797,26 @@ def main(argv: list[str] | None = None, *, bundle: Path) -> int:
             "failed",
             Error("internal.error", "unexpected internal failure", exit_code=70),
         )
+    policy = None
     try:
+        policy = _diagnostic_policy(arguments)
+        result = _redacted_result(result, policy)
         output = _render(result, json_mode=json_mode)
-    except (Error, UnicodeError) as exc:
-        result = _error_result(None, "refused", Error("output.invalid", str(exc)))
-        output = _render(result, json_mode=json_mode)
+    except (Exception, KeyboardInterrupt):
+        result, output = _output_failure(result, json_mode=json_mode, policy=policy)
     stream = sys.stderr if result.status in {"failed", "refused"} and not json_mode else sys.stdout
-    stream.write(output)
+    try:
+        stream.write(output)
+        stream.flush()
+    except (OSError, UnicodeError, KeyboardInterrupt):
+        result, output = _output_failure(result, json_mode=json_mode, policy=policy)
+        with suppress(OSError, UnicodeError, KeyboardInterrupt):
+            stream.close()
+        if stream is not sys.stderr:
+            try:
+                sys.stderr.write(output)
+                sys.stderr.flush()
+            except (OSError, UnicodeError, KeyboardInterrupt):
+                with suppress(OSError, UnicodeError, KeyboardInterrupt):
+                    sys.stderr.close()
     return result.exit_code

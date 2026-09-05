@@ -1,260 +1,293 @@
 # remek workflows
 
-Use absolute paths; keep plans outside protected inputs. Put global `--root`
-and `--json` before the command. For every `--output P`, show it, explain its
-paths and effects, await approval, then apply with the same entrypoint:
+## Choose the source and preserve work
+
+A private governed source is the normal home for one owner's skills. Same-owner
+machines clone/pull that source. Use a separate private team mirror or public mirror
+when crossing an audience boundary. A distribution is selection for another
+repository/audience, not source synchronization. Reuse existing conventions and
+explicit authorization; resolve unknown names, paths, and audience before creation.
+The remek producer repository contains only `skills/remek/`; never author user or
+private skills there. Locate the owner's separate governed source first.
+
+Use absolute paths and put global `--root`/`--json` before the command. `init`,
+`audit`, and `verify` take explicit paths and forbid `--root`. Plans belong outside
+source, bundle, input, target, and transaction-parent roots. An absent init target's
+parent is protected: keep its plans in a different private directory.
+
+Create disposable artifacts under one external mode-0700 run directory when needed.
+Keep persistent original sources, traces, backups, and maps under owner-selected
+private storage. Never store private artifacts inside installed skills or public
+payloads. An ignored repository scratch directory is coordination-only and requires
+verified containment, no symlink components, and actual Git ignore status. Preserve
+foreign files; remove only this run's proven disposable bytes after verifying custody.
+
+## Initialize and author
+
+From a reviewed installed bundle:
 
 ```bash
-# Installed
-python3 -I -S -B /abs/installed/remek/scripts/cli.py plan show P
-python3 -I -S -B /abs/installed/remek/scripts/cli.py apply P
-# Source
-./remek plan show P
-./remek apply P
+python3 -I -S -B /abs/installed/remek/scripts/cli.py init /abs/sources/private-skills --output /abs/private-plans/init.json
+python3 -I -S -B /abs/installed/remek/scripts/cli.py show /abs/private-plans/init.json
+python3 -I -S -B /abs/installed/remek/scripts/cli.py apply /abs/private-plans/init.json
 ```
 
-Later examples use reviewed source `./remek`.
+Use `apply` after inspecting exact effects under existing authorization. Initialization
+preserves README and foreign files; it refuses populated `skills/`. `--project`
+intentionally governs `.agents/skills/`. For an existing ungoverned collection, make
+verified private copies first, initialize a separate source, then copy reviewed
+payloads and author records. Do not move/delete original work to satisfy a refusal.
 
-## Scratch and private artifacts
+Before ordinary edits, verify that an existing checkpoint preserves the exact
+pre-edit payload and old case definitions. Preserve unique uncommitted bytes in a
+verified private backup if that checkpoint does not cover them. An existing verified
+checkpoint is sufficient; do not require a new commit for each edit. Ordinary edits
+do not have remek's transaction or stale-plan protection.
 
-When needed, create one external mode-0700 run root under verified local POSIX
-temporary storage with `umask 077`, outside pre-existing protected roots.
-Separate plans, workspaces, inputs, raw reports, environments, and checkouts.
+Create `skills/NAME/SKILL.md` and resources with ordinary file edits,
+add NAME to sorted `remek.json.governedSkills`, and write
+`.remek/skills/NAME/skill.json`. This example is an authored declaration to adapt
+truthfully; its empty case sets allow source use and cannot qualify a release:
 
-`<git-root>/.tmp/remek/<skill-or-project>/<run-id>/` is coordination-only. Use a
-fresh absent mode-0700 leaf after proving canonical containment, nonsymlink
-components, an untracked path, and `git check-ignore` success:
+```json
+{
+  "schema": "remek.2",
+  "kind": "skill-record",
+  "skill": "example",
+  "exposure": "source-only",
+  "provenance": {
+    "origin": "designed",
+    "source": null,
+    "sourceNote": "Describe the actual reviewed source and any retention limitation.",
+    "upstreamRepository": "",
+    "upstreamRef": "",
+    "rights": "",
+    "rightsBasis": "",
+    "license": ""
+  },
+  "cases": {"routing": [], "behavior": []}
+}
+```
 
-- Init generates `/.tmp/` if the target or its `.gitignore` is absent.
-- An existing `.gitignore` stays byte-identical; if it lacks `/.tmp/`, offer an
-  owner-approved edit and use the external root until that lands.
-- Project mode follows those rules at its worktree root.
-- Ungoverned Git uses repository scratch only when already ignored.
-- A plain project or installed-only run uses only the external root. Initialization
-  may create its governed source and generated ignore; scratch alone never does.
-
-Never store artifacts in installed skill directories or common personal
-folders. Keep persistent raw evidence in an owner-approved external store; owner
-paths never override overlap refusals. Clean only this run after proving its
-bytes were accepted or moved; report retained paths and sizes.
-
-## Whole-request workflow
-
-Before first initialization, quietly inspect instructions, memory, project and
-skill roots, Git, and read-only GitHub context. Reuse established setup.
-Otherwise learn whether a skill repository exists and any skill may become
-public. The three normal topologies are one private governed source for one
-owner, a private governed source plus a distinct private team-consumer mirror,
-and a private governed source plus a distinct public mirror for selected skills.
-Same-owner machines normally clone or pull the governed source. A distribution
-crosses into a different consumer repository or audience; it is not a source
-synchronization mechanism.
-
-Explain the split; confirm names and absolute paths. Creation, remotes, and
-visibility need separate authorization. Reuse it unless project-local.
-
-### Authoring handoff
-
-Inspect compatible native and installed capabilities, instructions, preferences,
-and prior workflows. Use a known or sole choice silently; if several remain, ask
-once, recommend native absent contrary evidence, and state only the material
-difference. Never install, mix, or store choices in remek.
-
-Finish one candidate, design, or reviewed import, then hand it to remek.
-Authoring may design or run external evaluations; its output is not trusted
-automatically. remek binds reviewed results to exact bytes. After acceptance,
-continue requested Git or installation work through its owner.
-
-Before handoff, inspect every shipped script and referenced resource. Identify
-side effects, external commands, dependencies, and filesystem, network,
-credential, and tool access; state runtime requirements in `compatibility`.
-Treat `allowed-tools` as experimental host guidance, not cross-host
-authorization, and cover dangerous or irreversible paths in behavior cases.
-
-End with lifecycle, Git/install, evidence, release status, and next action;
-`source-only` is exposure, not installation. Never infer publication from policy
-or local preparation.
-
-## Private source
+Retain a real brief or completed procedure under this skill's `sources/` and use a
+checked `{path:"sources/brief.md",type:"file",digest:SHA256}` descriptor when available.
+A tree descriptor binds exact retained files and executable modes. Imports preserve
+reviewed upstream bytes; missing original material is an explicit limitation, never
+an invented upstream claim. Match directory/frontmatter names, and describe script
+side effects, commands, dependencies, and access in `compatibility`. `allowed-tools`
+is host guidance, not cross-host permission.
 
 ```bash
-python3 -I -S -B /abs/installed/remek/scripts/cli.py init /abs/source --output /abs/session/plans/init.json
-python3 -I -S -B /abs/installed/remek/scripts/cli.py plan show /abs/session/plans/init.json
-# Explain the exact paths and effects, then wait for owner approval.
-python3 -I -S -B /abs/installed/remek/scripts/cli.py apply /abs/session/plans/init.json
-cd /abs/source
+./remek audit /abs/reviewed-copy/NAME
 ./remek check
 ```
 
-Choose `captured` work, a `designed` brief, or an `imported` reviewed skill.
-For `captured`, first write the confirmed procedure to one file the user
-reviews; remek retains that exact file, never the chat. Audit untrusted imports
-read-only first, then review their intent, resources, and scripts: audit proves
-structure, not safety. Runtime-only code or class definitions, live dynamic
-resources, and MCP sources require a reviewed file snapshot; remek governs that
-snapshot, not the live source. Complete candidate, provenance, policy, and both
-case sets in the owner-only workspace; `accept` invents nothing.
+The supported `remek-text` profile accepts bounded UTF-8 regular files and supported
+scalar frontmatter, including preserved CRLF. It is narrower than general YAML and
+Agent Skills interchange. Correct only reviewed structure in a copy; audit never
+normalizes upstream or installed files. It does not establish benign intent.
 
-GitHub CLI projections with consistently four-space scalar `metadata` parse;
-imported scaffold strips only named installer tracking keys and renders the
-remaining frontmatter canonically. Run `audit` on an owner-only working copy. On
-`audit.profile-unsupported`, correct only its named tree or frontmatter
-boundary; on `audit.open-invalid`, correct the named structural defect. Retain the
-original path, mode, and SHA-256 manifest; keep resources byte-identical and make
-only reviewed `SKILL.md` changes. Make the directory basename and frontmatter
-`name` match, JSON-quote scalar strings, use supported top-level fields, and use
-two-space scalar `metadata` children. `audit.metadata` names the exact installer
-keys imported scaffold strips; other metadata is preserved. Repeat audit then
-scaffold; on `scaffold.import`, fix only its named detail and restart from audit.
-Never normalize the installed or upstream copy in place.
+Revise payload and declarations with ordinary edits, inspect the Git diff, and run
+`check`. Keep historical evidence when revisions make it stale.
+Change exposure directly. To retire without deletion, choose `source-only` and remove
+selection from distributions. To remove, review and delete the owned payload/record
+and its references together; preserve any valuable sources/history first.
 
-```bash
-./remek scaffold --name NAME --origin captured --source /abs/session/inputs/work.md --workspace /abs/session/workspaces/NAME
-./remek accept --workspace /abs/session/workspaces/NAME --output /abs/session/plans/accept.json
-```
+## Author distribution and disclosure
 
-Revise with
-`./remek scaffold --skill NAME --workspace /abs/session/workspaces/NAME-v2`.
-Base
-drift leaves source unchanged; scaffold again. Promote with a byte-identical
-revision: edit the workspace policy's lifecycle or exposure with a fresh
-stateReason, then accept; promotion is not release. `retire` keeps the governed
-record; `remove` refuses while any distribution selects the skill.
-
-For a source remek already governs, use the shorter `./remek` import above. A
-first-time in-place migration must use the installed entrypoint because no local
-wrapper exists and `init` never claims populated `skills/`. First create a
-recoverable Git checkpoint. Copy every ungoverned skill to an external
-owner-only directory and verify a path, mode, and SHA-256 manifest against each
-original. Before moving any original, audit every verified copy and scaffold it
-into a separate completed `imported` workspace:
-
-```bash
-remek_cli=/abs/installed/remek/scripts/cli.py
-source_root=/abs/existing-source
-python3 -I -S -B "$remek_cli" audit /abs/session/inputs/verified-copy/NAME
-python3 -I -S -B "$remek_cli" --root "$source_root" scaffold --name NAME --origin imported --source /abs/session/inputs/verified-copy/NAME --workspace /abs/session/workspaces/NAME-import
-# Repeat audit and scaffold for every existing skill.
-```
-
-Review every normalized candidate and completed provenance. Only after all
-workspaces are complete, move the colliding originals out so `skills/` is empty.
-Then initialize with the installed entrypoint before any local accept cycle:
-
-```bash
-python3 -I -S -B "$remek_cli" init "$source_root" --output /abs/session/plans/init.json
-python3 -I -S -B "$remek_cli" plan show /abs/session/plans/init.json
-# Explain the exact paths and effects, then wait for owner approval.
-python3 -I -S -B "$remek_cli" apply /abs/session/plans/init.json
-"$source_root/remek" --root "$source_root" accept --workspace /abs/session/workspaces/NAME-import --output /abs/session/plans/NAME-accept.json
-"$source_root/remek" --root "$source_root" plan show /abs/session/plans/NAME-accept.json
-# Explain the exact paths and effects, then wait for owner approval.
-"$source_root/remek" --root "$source_root" apply /abs/session/plans/NAME-accept.json
-# Repeat the accept cycle for every completed workspace.
-```
-
-Consumer installation, if requested, is separate. `--project` intentionally
-governs `.agents/skills/`; it is a different topology, not a migration repair.
-Managed release requires the governed source and mirror to be Git worktree roots.
-It checks the full Git object database under the fixed 30-second subprocess bound;
-project mode therefore inherits the enclosing repository's object-database cost.
-Use a dedicated governed source when a large monorepo cannot meet that boundary.
-
-## Quality and distribution
-
-`check` reports quality. Missing evidence is expected for a new
-`draft`/`source-only` skill; candidate, case, profile, or catalog changes stale
-evidence. Source and mirror repositories require committed `HEAD`s.
-
-`/abs/session/inputs/distribution.json` and
-`/abs/session/inputs/disclosure.json` have these exact shapes:
+Write `.remek/distributions/DIST.json` directly. It has this shape (replace identity
+and profile placeholders before validation):
 
 ```json
-{"schema":"remek.1","kind":"distribution","id":"DIST","audience":"private","skills":["NAME"],"target":{"provider":"github","hostname":"github.com","nameWithOwner":"OWNER/REPO","remote":"origin","branch":"main","expectedVisibility":"PRIVATE"},"delivery":["gh"],"evidencePolicy":{"routingProfiles":[{"kind":"manual-host","name":"HOST","version":"VERSION","claim":"regression","runConfigDigest":"CONFIG_SHA256","trialCount":3,"minimumPassCount":3}],"behaviorProfiles":[{"kind":"test-suite","name":"SUITE","version":"VERSION","claim":"regression","runConfigDigest":"CONFIG_SHA256","trialCount":1,"minimumPassCount":1}]},"privateDisclosure":"block"}
+{"schema":"remek.2","kind":"distribution","id":"dist","audience":"private","skills":["example"],"target":{"provider":"github","hostname":"github.com","nameWithOwner":"OWNER/REPO","remote":"origin","branch":"main","expectedVisibility":"PRIVATE"},"delivery":["gh"],"evidencePolicy":{"routingProfiles":[{"kind":"manual-host","name":"HOST","version":"VERSION","claim":"regression","runConfigDigest":"CONFIG_SHA256","trialCount":3,"minimumPassCount":3}],"behaviorProfiles":[{"kind":"test-suite","name":"SUITE","version":"VERSION","claim":"regression","runConfigDigest":"CONFIG_SHA256","trialCount":1,"minimumPassCount":1}]},"privateDisclosure":"block","activeReview":null}
 ```
 
-```json
-{"schema":"remek.1","kind":"disclosure-policy","entries":[{"id":"review-note","class":"note","match":"literal","value":"Reviewed."}]}
-```
+Profiles bind exact configuration text by SHA-256. Preserve real configuration or
+revise a profile under owner authorization; a historical hash cannot recover its
+preimage. Public requires `audience:"public"`, `PUBLIC`, blocked private disclosure,
+`public-eligible` skills, reviewed rights, exact frontmatter/provenance license, and
+explicit irreversibility review. GitHub is the only authenticated target implemented.
+Delivery declarations do not perform installation or provide access.
+
+Edit `.remek/disclosure-policy.json` as one complete active policy. Entries have
+`id`, `class`, `match`, and `value`; there are no retired entries/tombstones. Changing
+any semantic policy field stales reviews. Credentials cannot be excepted. Other
+exceptions bind skill, entry ID and digest, and a substantive reviewer-owned reason.
+
+## Evaluate outside remek and record observations
+
+Author nonempty routing cases with positive and contrastive prompts, and behavior
+cases with explicit observable expectations. Then prepare templates:
 
 ```bash
-./remek distribution accept --from /abs/session/inputs/distribution.json --output /abs/session/plans/distribution.json
-./remek disclosure accept --from /abs/session/inputs/disclosure.json --output /abs/session/plans/disclosure.json
 ./remek --json eval plan NAME --kind behavior
 ./remek --json eval plan NAME --kind routing --distribution DIST
-./remek eval record NAME --from /abs/session/inputs/behavior.json --output /abs/session/plans/behavior.json
-./remek eval record NAME --from /abs/session/inputs/routing.json --output /abs/session/plans/routing.json
-./remek --json approve plan DIST --skill NAME
-./remek approve record DIST --skill NAME --from /abs/session/inputs/approval.json --output /abs/session/plans/approval.json
 ```
 
-Before evaluation, hash a private config covering claim, baseline, hosts, models,
-catalog, runner/runtime, isolation, permissions, runtime approval, retries,
-budgets, logging, and graders. Use clean contexts and at least three trials per
-host. A multi-host `external` profile preserves each host identity and result.
-Freeze or digest material dynamic inputs in the private report, or state their
-freshness limit; caching and reload remain host responsibilities. Before
-recording, verify every report digest and cited identity against preserved
-artifacts. Record aggregate passes and the private `evaluation-report` digest;
-keep trials and traces outside the source and record failures. Profiles may name
-different evaluators or hosts; remek runs none. GitHub is the only implemented
-authenticated release target.
+Use a compatible authorized external runner or actual manual trials. Record the
+actual `runConfiguration`: host/model/version, relevant inputs, baseline, isolation,
+permissions, retry/budget policy, logging and grader limitations. Freeze or identify
+dynamic inputs and explain freshness limits. Keep full private traces separately.
+remek does not invoke the runner or verify provider execution.
 
-Evidence and release approval are independent gates. Approval binds candidate,
-provenance, distribution, exceptions, a reviewer declaration, and date; it does
-not attest a particular receipt, authenticate the reviewer, prove separation of
-duties, or grant runtime, tool, or script permission. External controls own
-authentication and the active host owns runtime authorization. Public also
-requires a nonempty candidate frontmatter `license` exactly matching reviewed
-provenance, `public-eligible`, fresh history and proof, blocked private
-disclosure, `audience:"public"`, and `expectedVisibility:"PUBLIC"`. Mirrors omit
-governance and retained sources.
-
-| Intent | Owner |
-| --- | --- |
-| Move governed source | Git |
-| Update installed remek | Installer |
-| Replace embedded toolchain | `remek update` |
-| Update consumer copies | Installer or consumer tooling |
-
-Run `update` through the new installed entrypoint with `--root /abs/source`;
-the old source shim offers only its embedded toolchain.
-
-## Release
+Fill every ordered `trials` row with `pass`, `fail`, or `error` and a 1–500 character
+observation. Do not omit failures, infer successes from missing output, aggregate
+away uncertainty, or invent observations from old receipts. The template's
+`unreported` rows and blank configuration refuse recording. The six-field report
+profile omits `runConfigDigest`; remek computes it from retained configuration.
+Optional artifact references bind hashes, but their external bytes need separate
+verification. Named routing reports cover that distribution; behavior reports have
+no distribution. Whole-source routing does not qualify named release.
 
 ```bash
-./remek check --release DIST
-./remek release DIST --mirror /abs/session/mirror --output /abs/session/plans/release.json
-./remek plan show /abs/session/plans/release.json
-# Explain the exact paths and effects, then wait for owner approval.
-./remek apply /abs/session/plans/release.json
-git -c core.fsmonitor=false -C /abs/session/mirror add -A -- skills release-manifest.json
-git --no-pager -c core.fsmonitor=false -C /abs/session/mirror diff --cached --no-ext-diff --no-textconv -- skills release-manifest.json
-git -c core.fsmonitor=false -c core.hooksPath=/dev/null -C /abs/session/mirror commit --no-gpg-sign -m "Release DIST"
-(cd /abs/session/mirror && gh skill publish --dry-run)
-./remek release verify DIST --mirror /abs/session/mirror
-git -C /abs/session/mirror push --no-verify --no-follow-tags --no-signed REMOTE 'HEAD:refs/heads/BRANCH'
+./remek eval record NAME --from /abs/private-inputs/behavior.json --output /abs/private-plans/behavior.json
+./remek show /abs/private-plans/behavior.json
+./remek apply /abs/private-plans/behavior.json
+./remek eval record NAME --from /abs/private-inputs/routing.json --output /abs/private-plans/routing.json
+./remek show /abs/private-plans/routing.json
+./remek apply /abs/private-plans/routing.json
 ```
 
-The sample commit is deliberately unsigned. If organizational policy requires
-signatures, replace that command with an externally governed signed commit before
-`release verify`, or sign a tag pointing to the verified commit. remek holds no
-keys and signatures replace neither evaluation evidence nor release approval.
+Each new relevant report and all affected review-pointer clearances apply atomically.
+Identical canonical reports are a no-op and do not revoke. Historical evidence is
+retained. Missing/stale evidence warns for private use; release requires current
+coverage for each selected skill and required profile.
 
-Staging is not push-ready; commit, validation, push, tag, publish, and visibility
-remain separate. A released mirror is a plain Git repository that an installer
-or package manager may consume; remek is neither of those tools. Issues and pull
-requests against a mirror are proposals: reproduce a reviewed change in the
-owning private source, then re-prove, re-approve, and release it. An independently
-owned organization instead uses reviewed import into its own governed source;
-current import provenance does not claim to preserve release-derived lineage.
+## Review one complete distribution
 
-Checks are offline. `repair` plans only managed structure, preserves foreign
-data, reports residue, and clears blockers. `audit` executes nothing and reports
-structure, not intent, provenance, or safety. Credential findings expose only
-code and path, never matched text. `doctor` reports the
-source and trusted-toolchain diagnosis. `eval plan` and `approve
-plan` print the precise recording command as their next action. `apply` reports
-whether state was unchanged, changed, restored, or left with named residue;
-exit 3 never means the mirror stayed unchanged. Release alone authenticates the
-GitHub target.
+```bash
+./remek --json review plan DIST
+```
+
+Inspect the complete packet: exact selection/candidate identities, full declarations
+and provenance, required evaluator profiles and selected report paths, every current
+relevant failure, additional reports, disclosure findings, target, and visibility.
+Read observations in the named private files. The packet contains deterministic
+passing-report proposals, false booleans, and blank reviewer/date/reasons. Missing
+evidence may yield an incomplete template with blocking findings; do not record it.
+
+Review published manifest metadata too: selected names/paths, modes and digests,
+source and prior-mirror commit IDs, audience, source/distribution/branch/target/remote
+identity hashes, release/review digests, and expected commit paths. Hashes of guessable
+private labels are not confidential redaction. Inspect the exact manifest bytes in
+the release plan diff before applying it.
+
+A required-profile failure needs a substantive acknowledgement, and a current pass
+is still required for the same slot. Non-required failures are visible and bound
+without becoming new requirements. No declared pass or reason proves honesty.
+Only actual owner-authorized review justifies `rightsReviewed`, `evidenceReviewed`,
+`proprietaryContentReviewed`, and public irreversibility acknowledgement. The review
+binds all currently relevant evidence, not just selected successes. Even an empty
+selection needs review because clearing a mirror changes its audience's payload.
+
+```bash
+./remek review record DIST --from /abs/private-inputs/review.json --output /abs/private-plans/review.json
+./remek show /abs/private-plans/review.json
+./remek apply /abs/private-plans/review.json
+./remek check --distribution DIST
+```
+
+Review files are immutable; the distribution points to the active hash. New relevant
+reports clear it. Changes to reviewed candidates, declarations, policies, or relevant
+reports stale its context.
+Deleting new evidence does not automatically reactivate an old pointer. A missing
+referenced file or malformed historical record is an error and preserves visibility
+of an otherwise valid skill. Do not repair by hiding failures or deleting history.
+
+## Release, verify, and update
+
+Source and managed mirror must be clean Git worktree roots with committed HEADs.
+The mirror's branch must match the authored target.
+The full object database must pass within the fixed 30-second subprocess limit;
+large project repositories inherit that cost. Use a dedicated source if necessary.
+remek refuses active filters, hidden index flags, submodules, raw-HEAD mismatch,
+unsafe executables/PATH, remote credentials, and incompatible lineage.
+
+```bash
+./remek release plan DIST --mirror /abs/mirror --output /abs/private-plans/release.json
+./remek show /abs/private-plans/release.json
+./remek apply /abs/private-plans/release.json
+```
+
+Only `skills/` and `release-manifest.json` are materialized. Foreign mirror files
+stay unchanged. Under separate authorization, use Git to inspect and commit exactly
+the declared changed paths in one commit over the bound parent. Then:
+
+```bash
+./remek release verify DIST --mirror /abs/mirror
+./remek verify /abs/mirror
+```
+
+`release verify` checks artifact, source readiness, target, and commit lineage at
+that time. `verify` checks only the declared artifact inventory. Staging is offline:
+
+```bash
+./remek release plan DIST --staging /abs/staging-runs/release --output /abs/private-plans/staging.json
+./remek show /abs/private-plans/staging.json
+./remek apply /abs/private-plans/staging.json
+./remek verify /abs/staging-runs/release
+```
+
+Staging has no authenticated target claim. A v2 mirror needs fresh manifest lineage;
+leave old v1 mirrors/history intact. Signatures, if required externally, neither
+replace evidence nor review. Publishing, pushing, tags, visibility, host installation,
+and consumer updates remain separate owner-authorized actions. Report publication
+and installation only when independently observed; private audiences do not imply
+anonymous access. Mirror change proposals must be reproduced in the owning source,
+then evaluated/reviewed/released again.
+
+Repair authored declarations by editing their owner; repair embedded toolchain/shims
+using a new reviewed installed bundle:
+
+```bash
+python3 -I -S -B /abs/new/remek/scripts/cli.py --root /abs/source update --output /abs/private-plans/update.json
+python3 -I -S -B /abs/new/remek/scripts/cli.py show /abs/private-plans/update.json
+python3 -I -S -B /abs/new/remek/scripts/cli.py apply /abs/private-plans/update.json
+```
+
+The source's old shim only offers its own embedded version. Update maintains one
+layout and never upgrades v1 in place.
+
+## V1 rehearsal and rollback custody
+
+Normal v2 commands reject `remek.1`. From a validated producer checkout, use the
+source-only converter; it never loads old Python or touches global installations.
+Inventory actual sources, installed copies, mirrors, incomplete workspaces, raw
+reports, ignored/untracked work, and Git refs before any real cutover. Make a private
+byte/mode-preserving worktree backup and separately verify a Git bundle of relevant
+history. A Git archive alone is not an exact uncommitted/ignored-work backup.
+
+The converter checks every owned byte it will transform against an independent
+mode-0700 backup. Source, backup, and rehearsal are disjoint non-ancestor roots.
+An existing mode-0700 rehearsal must match the inventoried v1 owned bytes. An absent
+rehearsal receives owned paths, README and `.gitignore` only; use a verified complete
+copy to retain foreign source work. Private plans and mapping files are outside all
+protected roots, including an absent rehearsal's parent:
+
+```bash
+python3 tools/migrate_v1.py plan --source /abs/old-source --target /abs/rehearsals/source --archive /abs/verified-backup --output /abs/private-plans/migrate.json
+python3 tools/migrate_v1.py show /abs/private-plans/migrate.json
+python3 tools/migrate_v1.py apply /abs/private-plans/migrate.json
+```
+
+Ordinary skill bytes/modes remain exact. Tool-owned runtime changes are separately
+listed. Old declarations become one skill record; retired skills become source-only
+and leave selections. All distributions begin without active reviews. Old receipts
+and approvals remain historical backup bytes, never current v2 evidence. Missing
+original sources or configuration/trial details are explicit limitations. README and
+foreign objects remain unchanged. Exact completed conversion is a no-op; partial or
+unrelated v2 targets refuse. Source/archive/target/bundle drift refuses apply.
+
+Accept the rehearsal only after independent byte/mode comparison, foreign-data
+checks, v2 structural checks, truthful missing evidence/review, and confirmation that
+the original v1 toolchain remains usable against preserved old state. Real source
+replacement and host installation need separate explicit authorization. Keep original,
+backup, history, and incomplete work until the owner selects a retention policy.
+
+## Completion and failures
+
+State structural validity, evidence/review readiness, audience/count, artifact versus
+source/target/lineage verification, and next action. Machine results distinguish
+`unchanged`, `applied`, `restored`, `residue`, and `unknown`. Exit 3 never means the
+filesystem stayed unchanged. Preserve named residue; inspect before exact recovery.
+No hypothetical cleanup or rerun may overwrite a foreign object to quiet a check.

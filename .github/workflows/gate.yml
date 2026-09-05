@@ -26,7 +26,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
-      - run: |
+      - env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_NOSYSTEM: "1"
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
           ./gate
           run() { uv run --no-project --python "${{ matrix.python }}" --with-requirements requirements-dev.txt "$@"; }
           ruff() { uvx ruff@0.15.20 "$@"; }
@@ -35,7 +39,7 @@ jobs:
           run -m pytest tests/ --collect-only -q
           ruff check skills tests tools gate remek
           ruff format --check skills tests tools
-          mypy skills/remek/scripts/cli.py tools/verify_release_manifest.py
+          mypy skills/remek/scripts/cli.py tools/verify_release_manifest.py tools/migrate_v1.py
           mypy skills/remek/toolchain/scripts/cli.py skills/remek/toolchain/runtime
           python3 tools/verify_release_manifest.py --self-test
           uv run --no-project -p3.13 --with tiktoken==0.11.0 tools/repo_tokens.py

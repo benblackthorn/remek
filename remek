@@ -32,12 +32,12 @@ try:
         (
             "manifest.json",
             256 << 10,
-            "49f0db7d59c2f21095c040086b22b89eb397b3852427dd0d795c57a5aa97a843",
+            "a6b66172e61cf79ca09ef4495c124be2e70b3b0b9064063275b99b492a5f1aeb",
         ),
         (
             "scripts/cli.py",
             2 << 20,
-            "4ff007f3a1bbad972301e20eaede621137af87506bb30a4761e87b1b98f53ec3",
+            "f08222e5c67ffbc7e5b40973807075d9c302b08e26cfdc771bfff8041ca11dca",
         ),
     ):
         path = root / name

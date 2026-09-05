@@ -1,5 +1,5 @@
 # ruff: noqa: D101, D102, D103, I001
-"""Evidence."""
+"""Retained caller-reported evaluation observations and current-context matching."""
 
 import hashlib
 from dataclasses import dataclass
@@ -9,7 +9,7 @@ from .contract import SCHEMA, JSONObject, JSONValue, render_document as render
 from .model import Error, valid_skill_name
 
 _HEX = set("0123456789abcdef")
-_EVIDENCE_KEYS = {
+_EVALUATION_KEYS = {
     "schema",
     "kind",
     "evidenceKind",
@@ -19,7 +19,8 @@ _EVIDENCE_KEYS = {
     "routingCatalogDigest",
     "distribution",
     "profile",
-    "results",
+    "runConfiguration",
+    "trials",
     "artifacts",
 }
 
@@ -54,7 +55,7 @@ class CaseSet:
 
 
 @dataclass(frozen=True)
-class EvidencePlan:
+class EvaluationPlan:
     skill: str
     candidate: str
     case_set: CaseSet
@@ -64,7 +65,7 @@ class EvidencePlan:
     def template(self) -> JSONObject:
         return {
             "schema": SCHEMA,
-            "kind": "eval-evidence",
+            "kind": "evaluation",
             "evidenceKind": self.case_set.kind,
             "skill": self.skill,
             "candidate": self.candidate,
@@ -76,12 +77,16 @@ class EvidencePlan:
                 "name": "",
                 "version": "",
                 "claim": "regression",
-                "runConfigDigest": "",
                 "trialCount": 3,
                 "minimumPassCount": 3,
             },
-            "results": [{"caseId": case.case_id, "passCount": 0} for case in self.case_set.cases],
-            "artifacts": [{"label": "evaluation-report", "digest": ""}],
+            "runConfiguration": "",
+            "trials": [
+                {"caseId": case.case_id, "trial": trial, "outcome": "unreported", "observation": ""}
+                for case in self.case_set.cases
+                for trial in range(1, 4)
+            ],
+            "artifacts": [],
         }
 
 
@@ -105,7 +110,7 @@ def parse_case_set(document: JSONObject, kind: str) -> CaseSet:
         or document.get("kind") != expected_kind
         or set(document) != {"schema", "kind", "cases"}
         or not isinstance(values, list)
-        or not 1 <= len(values) <= 50
+        or len(values) > 50
     ):
         raise Error("cases.shape", f"invalid {expected_kind} document")
     result: list[Case] = []
@@ -137,7 +142,7 @@ def parse_case_set(document: JSONObject, kind: str) -> CaseSet:
         {case.prompt for case in result}
     ) != len(result):
         raise Error("cases.duplicate", "case ids and prompts must be unique")
-    if kind == "routing" and {case.expected for case in result} != {False, True}:
+    if result and kind == "routing" and {case.expected for case in result} != {False, True}:
         raise Error("cases.contrast", "routing needs positive and contrastive cases")
     return CaseSet(kind, tuple(result))
 
@@ -200,24 +205,53 @@ def profile_key(profile: JSONObject) -> str:
     return hashlib.sha256(render("evaluator-profile", fields)).hexdigest()
 
 
-def validate_evidence_intrinsic(
-    document: JSONObject, *, stored: bool = False
+def report_profile(document: JSONObject) -> JSONObject:
+    configuration = _text(document.get("runConfiguration"), "run configuration", 16384)
+    try:
+        data = configuration.encode("utf-8")
+    except UnicodeError:
+        raise Error("evidence.configuration", "run configuration must be UTF-8") from None
+    if len(data) > 16384:
+        raise Error("evidence.configuration", "run configuration exceeds 16 KiB")
+    value = document.get("profile")
+    if not isinstance(value, dict) or "runConfigDigest" in value:
+        raise Error(
+            "evidence.profile", "report profile must omit the computed configuration digest"
+        )
+    return parse_profile({**value, "runConfigDigest": hashlib.sha256(data).hexdigest()})
+
+
+def _observation(value: object) -> str:
+    text = _text(value, "trial observation", 500)
+    # Hygiene only: a credible-looking declaration is not authenticated execution.
+    if text.strip().casefold() in {
+        "todo",
+        "tbd",
+        "placeholder",
+        "observation",
+        "<actual observed behavior>",
+    }:
+        raise Error("evidence.observation", "trial observation is a placeholder")
+    return text
+
+
+def validate_evaluation_intrinsic(  # noqa: PLR0912, PLR0915
+    document: JSONObject,
 ) -> tuple[JSONObject, bool]:
-    expected_kind = "eval-receipt" if stored else "eval-evidence"
     evidence_kind = document.get("evidenceKind")
     skill = document.get("skill")
     distribution = document.get("distribution")
     routing = document.get("routingCatalogDigest")
     if (
         document.get("schema") != SCHEMA
-        or document.get("kind") != expected_kind
-        or set(document) != _EVIDENCE_KEYS
+        or document.get("kind") != "evaluation"
+        or set(document) not in (_EVALUATION_KEYS, _EVALUATION_KEYS - {"artifacts"})
         or not isinstance(evidence_kind, str)
         or evidence_kind not in ("routing", "behavior")
         or not valid_skill_name(skill)
         or (distribution is not None and not valid_skill_name(distribution))
     ):
-        raise Error("evidence.shape", "invalid evidence fields")
+        raise Error("evidence.shape", "invalid evaluation fields")
     _digest(document.get("candidate"), "candidate")
     _digest(document.get("caseSetDigest"), "case set")
     if routing is not None:
@@ -225,29 +259,46 @@ def validate_evidence_intrinsic(
     if (evidence_kind == "routing") != (routing is not None) or (
         evidence_kind == "behavior" and distribution is not None
     ):
-        raise Error("evidence.shape", "invalid evidence bindings")
-    profile = parse_profile(document.get("profile"))
+        raise Error("evidence.shape", "invalid evaluation bindings")
+    profile = report_profile(document)
     trial_count = cast(int, profile["trialCount"])
     minimum = cast(int, profile["minimumPassCount"])
-    values = document.get("results")
-    if not isinstance(values, list) or not 1 <= len(values) <= 50:
-        raise Error("evidence.results", "invalid result list")
-    passed, case_ids = True, set()
-    for value in values:
-        if not isinstance(value, dict) or set(value) != {"caseId", "passCount"}:
-            raise Error("evidence.results", "results must follow case order")
-        case_id, pass_count = value.get("caseId"), value.get("passCount")
-        if (
-            not valid_skill_name(case_id)
-            or case_id in case_ids
-            or type(pass_count) is not int
-            or not 0 <= pass_count <= trial_count
-        ):
-            raise Error("evidence.results", "invalid or repeated result")
-        case_ids.add(cast(str, case_id))
-        passed = passed and pass_count >= minimum
-    artifacts = document.get("artifacts")
-    if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 32:
+    trials = document.get("trials")
+    if not isinstance(trials, list) or not trials or len(trials) > 50 * trial_count:
+        raise Error("evidence.trials", "invalid trial list")
+    case_ids: set[str] = set()
+    previous: str | None = None
+    expected_trial, pass_count, passed = 1, 0, True
+    for row in trials:
+        if not isinstance(row, dict) or set(row) != {"caseId", "trial", "outcome", "observation"}:
+            raise Error(
+                "evidence.trials", "each trial needs caseId, trial, outcome, and observation"
+            )
+        identifier, trial, outcome = row.get("caseId"), row.get("trial"), row.get("outcome")
+        if not valid_skill_name(identifier) or type(trial) is not int:
+            raise Error("evidence.trials", "invalid case id or trial index")
+        case_id = cast(str, identifier)
+        if case_id != previous:
+            if case_id in case_ids or (previous is not None and expected_trial != trial_count + 1):
+                raise Error("evidence.trials", "trials must form complete ordered case groups")
+            if previous is not None:
+                passed = passed and pass_count >= minimum
+            case_ids.add(case_id)
+            previous, expected_trial, pass_count = case_id, 1, 0
+        if trial != expected_trial or trial > trial_count:
+            raise Error("evidence.trials", "trial indices must be exactly 1 through trialCount")
+        if not isinstance(outcome, str) or outcome not in {"pass", "fail", "error"}:
+            raise Error(
+                "evidence.trials", "only reported pass, fail, or error outcomes may be recorded"
+            )
+        _observation(row.get("observation"))
+        pass_count += outcome == "pass"
+        expected_trial += 1
+    if expected_trial != trial_count + 1:
+        raise Error("evidence.trials", "last case trial group is incomplete")
+    passed = passed and pass_count >= minimum
+    artifacts = document.get("artifacts", [])
+    if not isinstance(artifacts, list) or len(artifacts) > 32:
         raise Error("evidence.artifacts", "invalid artifact list")
     labels: set[str] = set()
     for artifact in artifacts:
@@ -258,43 +309,42 @@ def validate_evidence_intrinsic(
         if label in labels:
             raise Error("evidence.artifacts", "artifact labels must be unique")
         labels.add(label)
-    if "evaluation-report" not in labels:
-        raise Error("evidence.artifacts", "evaluation-report artifact required")
-    return {**document, "profile": profile}, passed
+    return document, passed
 
 
-def validate_evidence(document: JSONObject, plan: EvidencePlan) -> tuple[JSONObject, bool]:
-    normalized, passed = validate_evidence_intrinsic(document)
-    routing = normalized.get("routingCatalogDigest")
+def validate_evaluation(document: JSONObject, plan: EvaluationPlan) -> tuple[JSONObject, bool]:
+    normalized, passed = validate_evaluation_intrinsic(document)
     bindings = (
         normalized.get("skill") == plan.skill,
         normalized.get("evidenceKind") == plan.case_set.kind,
         normalized.get("candidate") == plan.candidate,
         normalized.get("caseSetDigest") == plan.case_set.digest,
-        routing == plan.routing_catalog_digest,
+        normalized.get("routingCatalogDigest") == plan.routing_catalog_digest,
         normalized.get("distribution") == plan.distribution,
     )
     if not all(bindings):
         raise Error(
             "evidence.stale", "current bound inputs differ; nothing recorded; plan fresh evidence"
         )
-    values = cast(list[JSONObject], normalized["results"])
-    if len(values) != len(plan.case_set.cases):
-        raise Error("evidence.results", "result count differs from case set")
-    for case, value in zip(plan.case_set.cases, values, strict=True):
-        if value.get("caseId") != case.case_id:
-            raise Error("evidence.results", "results must follow case order")
+    profile = report_profile(normalized)
+    trial_count = cast(int, profile["trialCount"])
+    expected = [
+        (case.case_id, trial) for case in plan.case_set.cases for trial in range(1, trial_count + 1)
+    ]
+    actual = [(row["caseId"], row["trial"]) for row in cast(list[JSONObject], normalized["trials"])]
+    if actual != expected:
+        raise Error("evidence.trials", "trials must exactly follow current case order")
     return normalized, passed
 
 
-def receipt_document(document: JSONObject, plan: EvidencePlan) -> bytes:
-    normalized, _ = validate_evidence(document, plan)
+def evaluation_document(document: JSONObject, plan: EvaluationPlan) -> bytes:
+    normalized, _ = validate_evaluation(document, plan)
     return render(
-        "eval-receipt",
+        "evaluation",
         {key: value for key, value in normalized.items() if key not in {"schema", "kind"}},
     )
 
 
-def receipt_status(document: JSONObject, plan: EvidencePlan) -> tuple[bool, bool, str]:
-    normalized, passed = validate_evidence({**document, "kind": "eval-evidence"}, plan)
-    return True, passed, profile_key(cast(JSONObject, normalized["profile"]))
+def evaluation_status(document: JSONObject, plan: EvaluationPlan) -> tuple[bool, bool, str]:
+    normalized, passed = validate_evaluation(document, plan)
+    return True, passed, profile_key(report_profile(normalized))

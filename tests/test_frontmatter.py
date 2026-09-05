@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from remek_core.frontmatter import FrontmatterError, parse_skill, render_skill
+from remek_core.frontmatter import FrontmatterError, parse_skill
 
 ROOT = Path(__file__).parents[1]
 
@@ -136,23 +136,22 @@ def test_byte_limit_is_inclusive_and_uses_utf8_bytes():
         parse_skill(exact[: -len(suffix)] + "é" + suffix)
 
 
-def test_agent_skills_optional_fields_follow_the_open_spec():
-    fields = {
-        "name": "sample-skill",
-        "description": "A sample.",
-        "compatibility": "x" * 500,
-        "allowed-tools": "Read Grep Bash(git:*)",
-    }
-    rendered = render_skill(fields, "# Sample\n")
-    assert parse_skill(rendered.decode())[0] == fields
-    for compatibility in ("", "x" * 501):
-        with pytest.raises(FrontmatterError, match="compatibility"):
-            render_skill({**fields, "compatibility": compatibility}, "# Sample\n")
-    with pytest.raises(FrontmatterError, match="allowed-tools must be a string"):
-        render_skill({**fields, "allowed-tools": ["Read"]}, "# Sample\n")
+def test_agent_skills_optional_fields_parse_as_strings():
+    fields, body = parse_skill(
+        "---\r\n"
+        "name: sample-skill\r\n"
+        "description: A sample.\r\n"
+        f"compatibility: {'x' * 500}\r\n"
+        "allowed-tools: Read Grep Bash(git:*)\r\n"
+        "---\r\n"
+        "# Sample\r\n\tPreserved spaces.  \r\n\r\n"
+    )
+    assert fields["compatibility"] == "x" * 500
+    assert fields["allowed-tools"] == "Read Grep Bash(git:*)"
+    assert body == "# Sample\r\n\tPreserved spaces.  \r\n\r\n"
 
 
-def test_github_cli_four_space_metadata_parses_and_renders_canonically():
+def test_github_cli_four_space_metadata_parses_without_normalization():
     fields, body = parse_skill(
         "---\n"
         "description: Installed by GitHub CLI.\n"
@@ -172,4 +171,4 @@ def test_github_cli_four_space_metadata_parses_and_renders_canonically():
         "github-repo": "https://github.com/owner/repository",
         "github-tree-sha": "abcdef0123456789",
     }
-    assert b"\n  github-path:" in render_skill(fields, body)
+    assert body == "# Sample\n"

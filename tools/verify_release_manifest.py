@@ -25,6 +25,7 @@ def _self_test() -> None:
         "distributionIdentity": zero,
         "releaseId": zero,
         "releaseSetDigest": zero,
+        "reviewDigest": zero,
         "payloadDigest": tree_from_entries([]).digest,
         "candidates": [],
         "directories": [],
